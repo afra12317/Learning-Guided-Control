@@ -15,7 +15,7 @@ map_dir: ./waypoints/
 map_ind: 0
 n_iterations: 1
 n_samples: 512
-n_steps: 10
+n_steps: 5
 norm_params:
 - - 4.0
   - -2.0

@@ -17,17 +17,6 @@
      ```
 
 ---
-
-## 🐞 Current Code Issues
-
-1. **Very low speed** when running PP + MPPI:
-   - The velocity computed by MPPI is significantly lower than the maximum speed I set.
-   - idk why
-   
-2. **Slow performance** overall
-    -  Code optimization is needed in later stages to improve runtime performance.
-
----
 ## 📌 Next Steps todos
 - [ ] Add obstacle avoidance
 - [ ] Tune on the vehicle

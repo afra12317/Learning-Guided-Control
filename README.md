@@ -18,26 +18,6 @@
 
 ---
 
-## 🤔 Unclear Points(by Haiyue)
-
-1. **Target Cost Function from Proposal:**
-
-   $$ 
-    \ell(x_t,u(x_t)) = (x_{t+1} - \hat{x}_{t+1})^\top Q_f (x_{t+1} - \hat{x}_{t+1}) + a \mathbf{1}(x_{t+1} \in \mathcal{X}_{\text{unsafe}}) \\
-    \text{s.t. } x_{t+1} = f(x_t, u_t)
-    $$
-
-   **Question:** How do we determine the **unsafe region** $\mathcal{X}_{\text{unsafe}}$?
-     - Is it directly provided by an RL model?
-     - Or do we need to perform grid-based obstacle checking like in RRT?
-
-2. **Control Input vs. Trajectory Planning:**
-   - Should we provide direct **control inputs** $u(t)$ to MPPI?
-   - Or is it acceptable to generate a **sequence of waypoints** and let MPPI track that trajectory?
-   - From my understanding (though I might be misunderstanding MPPI), it seems reasonable that if the decision layer outputs a sequence of waypoints forming a trajectory, then MPPI can simply track that trajectory(and avoid obstacles at the same time).
-
----
-
 ## 🐞 Current Code Issues
 
 1. **Very low speed** when running PP + MPPI:
@@ -48,4 +28,7 @@
     -  Code optimization is needed in later stages to improve runtime performance.
 
 ---
-## 📌 Next Steps
+## 📌 Next Steps todos
+- [ ] Add obstacle avoidance
+- [ ] Tune on the vehicle
+- [ ] Improve running speed

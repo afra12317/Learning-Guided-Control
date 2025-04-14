@@ -11,6 +11,7 @@ import tf_transformations
 from nav_msgs.msg import Odometry
 from ackermann_msgs.msg import AckermannDriveStamped
 from std_msgs.msg import Float32MultiArray
+from rclpy.duration import Duration
 
 from utils.ros_np_multiarray import to_multiarray_f32
 from infer_env import InferEnv
@@ -19,6 +20,7 @@ import utils.utils as utils
 import utils.jax_utils as jax_utils
 from utils.Track import Track
 from utils.jax_utils import numpify
+from sensor_msgs.msg import LaserScan
 
 
 class MPPI_Node(Node):
@@ -56,6 +58,8 @@ class MPPI_Node(Node):
         self.drive_pub = self.create_publisher(AckermannDriveStamped, "/drive", qos)
         self.reference_pub = self.create_publisher(Float32MultiArray, "/reference_arr", qos)
         self.opt_traj_pub = self.create_publisher(Float32MultiArray, "/opt_traj_arr", qos)
+        self.scan_sub = self.create_subscription(LaserScan, "/scan", self.scan_callback, qos)
+        self.lidar_scan = None
 
         self.get_logger().info("MPPI node initialized.")
 
@@ -76,15 +80,43 @@ class MPPI_Node(Node):
             twist.angular.z,
             beta,
         ])
+        
+    def scan_callback(self, msg):
+        self.lidar_scan = msg
+    
+        
+    def process_lidar_to_obstacle_points(self, scan_msg, car_state):
+        ranges = np.array(scan_msg.ranges)
+        angle_min = scan_msg.angle_min
+        angle_increment = scan_msg.angle_increment
+        angles = angle_min + np.arange(len(ranges)) * angle_increment
+        ranges = np.clip(ranges, 0.0, 10.0)  
+        xs = ranges * np.cos(angles)
+        ys = ranges * np.sin(angles)
+        in_front = (xs > 0) & (xs < 10.0) & (np.abs(ys) < 2.5)  
+        xs = xs[in_front]
+        ys = ys[in_front]
+
+        theta = car_state[4]  # yaw
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+
+        global_xs = car_state[0] + (xs * cos_theta - ys * sin_theta)
+        global_ys = car_state[1] + (xs * sin_theta + ys * cos_theta)
+
+        return np.vstack((global_xs, global_ys)).T
 
     def pp_ref_callback(self, msg):
         arr = np.array(msg.data, dtype=np.float32)
         if len(arr) % 2 != 0:
             return
+        if self.lidar_scan is None:
+            self.get_logger().warn("LiDAR data not yet received. Skipping MPPI update.")
+            return
         self.pp_ref_traj = arr.reshape((-1, 2))
         reference_traj = self.interpolate_ref_from_pp(self.state_c_0.copy(), self.pp_ref_traj, self.config.n_steps)
-
-        self.mppi.update(jnp.asarray(self.state_c_0), jnp.asarray(reference_traj))
+        obs_array = self.process_lidar_to_obstacle_points(self.lidar_scan, self.state_c_0)
+        self.mppi.update(jnp.asarray(self.state_c_0), jnp.asarray(reference_traj), obs_array)
         mppi_control = numpify(self.mppi.a_opt[0]) * self.config.norm_params[0, :2] / 2
 
         self.control[0] = float(mppi_control[0]) * self.config.sim_time_step + self.control[0]
@@ -109,10 +141,11 @@ class MPPI_Node(Node):
         if self.opt_traj_pub.get_subscription_count() > 0:
             opt_msg = to_multiarray_f32(numpify(self.mppi.traj_opt).astype(np.float32))
             self.opt_traj_pub.publish(opt_msg)
-
+        '''
         self.get_logger().info(
             f"[MPPI] Drive command: steer={self.control[0]:.3f}, speed={self.control[1]:.3f}"
         )
+        '''
 
     def interpolate_ref_from_pp(self, state, pp_traj, n_steps):
         ref_traj = np.zeros((n_steps + 1, 3))
@@ -127,6 +160,7 @@ class MPPI_Node(Node):
         for i in range(max_idx, n_steps + 1):
             ref_traj[i] = ref_traj[max_idx - 1]
         return jnp.array(ref_traj)
+    
 
 
 def main(args=None):

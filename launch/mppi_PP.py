@@ -15,4 +15,11 @@ def generate_launch_description():
             name='PP',
             output='screen'
         ),
+        Node(
+            package='mppi_control',
+            executable='vis_node.py',
+            name='vis_node',
+            output='screen'
+        )
     ])
+    

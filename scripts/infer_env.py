@@ -89,12 +89,13 @@ class InferEnv():
         reward function for the state s with respect to the reference trajectory
         """
         xy_cost = -jnp.linalg.norm(reference[1:, :2] - state[:, :2], ord=1, axis=1)
+        goal = reference[-1, :2] 
         vel_cost = -jnp.linalg.norm(reference[1:, 2] - state[:, 3])
         yaw_cost = -jnp.abs(jnp.sin(reference[1:, 3]) - jnp.sin(state[:, 4])) - \
             jnp.abs(jnp.cos(reference[1:, 4]) - jnp.cos(state[:, 4]))
             
         # return 20*xy_cost + 15*vel_cost + 1*yaw_cost
-        return xy_cost
+        return 2 * xy_cost + 1 * yaw_cost
     
     
     def calc_ref_trajectory_kinematic(self, state, cx, cy, cyaw, sp):

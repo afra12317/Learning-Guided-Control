@@ -13,8 +13,6 @@ foreach(PACKAGE
     find_package(${PACKAGE} REQUIRED)
 endforeach()
 
-
-
 install(
     DIRECTORY scripts/
     DESTINATION lib/${PROJECT_NAME}
@@ -29,11 +27,12 @@ install(PROGRAMS
     scripts/trajectory_error_evaluator.py
     scripts/pure_pursuit_node.py
     scripts/mppi_PP.py
+    scripts/obs.py
     DESTINATION lib/${PROJECT_NAME}
 )
 
 install(DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}/
+    DESTINATION share/${PROJECT_NAME}/
 )
 
 ament_package()

@@ -6,7 +6,7 @@ import os, sys
 sys.path.append("../")
 from functools import partial
 import numpy as np
-
+from jax import debug
 
 class MPPI():
     """An MPPI based planner."""
@@ -47,10 +47,10 @@ class MPPI():
             self.a_cov_init = self.a_cov
             
             
-    def update(self, env_state, reference_traj):
+    def update(self, env_state, reference_traj, obs_array):
         self.a_opt, self.a_cov = self.shift_prev_opt(self.a_opt, self.a_cov)
         for _ in range(self.n_iterations):
-            self.a_opt, self.a_cov, self.states, self.traj_opt = self.iteration_step(self.a_opt, self.a_cov, self.jrng.new_key(), env_state, reference_traj)
+            self.a_opt, self.a_cov, self.states, self.traj_opt = self.iteration_step(self.a_opt, self.a_cov, self.jrng.new_key(), env_state, reference_traj, obs_array = obs_array)
         
         if self.track is not None and self.config.state_predictor in self.config.cartesian_models:
             self.states = self.convert_cartesian_to_frenet_jax(self.states)
@@ -72,8 +72,18 @@ class MPPI():
         return a_opt, a_cov
     
     
-    @partial(jax.jit, static_argnums=(0))
-    def iteration_step(self, a_opt, a_cov, rng_da, env_state, reference_traj):
+    def check_collision(self, states, obstacle_points, collision_radius=0.2):
+        def check_state_timestep(state_t):
+            dx = obstacle_points[:, 0] - state_t[0]
+            dy = obstacle_points[:, 1] - state_t[1]
+            dist_sq = dx**2 + dy**2
+            return jnp.any(dist_sq < collision_radius**2)
+        
+        # states: [n_steps, state_dim]
+        return jax.vmap(check_state_timestep)(states) 
+    
+    #@partial(jax.jit, static_argnums=(0))
+    def iteration_step(self, a_opt, a_cov, rng_da, env_state, reference_traj, obs_array):
         rng_da, rng_da_split1, rng_da_split2 = jax.random.split(rng_da, 3)
         da = jax.random.truncated_normal(
             rng_da,
@@ -86,6 +96,9 @@ class MPPI():
         states = jax.vmap(self.rollout, in_axes=(0, None, None))(
             actions, env_state, rng_da_split1
         )
+        collision_flags = jax.vmap(self.check_collision, in_axes=(0, None))(
+            states, obs_array
+        ) 
         
         if self.config.state_predictor in self.config.cartesian_models:
             reward = jax.vmap(self.env.reward_fn_xy, in_axes=(0, None))(
@@ -94,8 +107,9 @@ class MPPI():
         else:
             reward = jax.vmap(self.env.reward_fn_sey, in_axes=(0, None))(
                 states, reference_traj
-            ) # [n_samples, n_steps]          
-        
+            ) # [n_samples, n_steps] 
+            
+        reward = reward - (collision_flags * 10.0) 
         R = jax.vmap(self.returns)(reward) # [n_samples, n_steps], pylint: disable=invalid-name
         w = jax.vmap(self.weights, 1, 1)(R)  # [n_samples, n_steps]
         da_opt = jax.vmap(jnp.average, (1, None, 1))(da, 0, w)  # [n_steps, dim_a]

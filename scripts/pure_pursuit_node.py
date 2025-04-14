@@ -113,7 +113,7 @@ class PurePursuit(Node):
                 return lookahead_point, i2
         return None, None
 
-    def publish_pp_ref_traj(self, start_idx, num_points=10):
+    def publish_pp_ref_traj(self, start_idx, num_points):
         if start_idx is None:
             return
         traj = self.waypoints[start_idx:start_idx + num_points]

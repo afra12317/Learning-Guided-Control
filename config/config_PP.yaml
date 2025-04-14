@@ -8,21 +8,21 @@ control_sample_std:
 - 0.5
 - 0.5
 exp_name: mppi_tracking
-friction: 0.5
+friction: 1.0
 init_vel: 2.0
 is_sim: true
 map_dir: ./waypoints/
 map_ind: 0
 n_iterations: 1
 n_samples: 512
-n_steps: 5
+n_steps: 10
 norm_params:
 - - 4.0
   - -2.0
 - - 6.0
   - -3.0
 random_seed: 527787
-ref_vel: 4.0
+ref_vel: 2.0
 render: 1
 s_frame_max: 62.12059091197948
 sim_time_step: 0.1

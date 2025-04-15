@@ -1,5 +1,5 @@
 a_cov_shift: true
-adaptive_covariance: true
+adaptive_covariance: false
 cartesian_models:
 - dynamic_ST
 - kinematic_ST

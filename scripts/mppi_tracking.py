@@ -11,7 +11,7 @@ from jax import debug
 class MPPI():
     """An MPPI based planner."""
     def __init__(self, config, env, jrng, 
-                 temperature=0.01, damping=0.001, track=None):
+                 temperature=0.005, damping=0.001, track=None):
         self.config = config
         self.n_iterations = config.n_iterations
         self.n_steps = config.n_steps
@@ -72,7 +72,7 @@ class MPPI():
         return a_opt, a_cov
     
     
-    def check_collision(self, states, obstacle_points, collision_radius=0.2):
+    def check_collision(self, states, obstacle_points, collision_radius=0.23):
         def check_state_timestep(state_t):
             dx = obstacle_points[:, 0] - state_t[0]
             dy = obstacle_points[:, 1] - state_t[1]
@@ -81,6 +81,11 @@ class MPPI():
         
         # states: [n_steps, state_dim]
         return jax.vmap(check_state_timestep)(states) 
+    
+    @partial(jax.jit, static_argnums=(0))
+    def mask_after_collision(self, collision_flags):
+        collision_cumsum = jnp.cumsum(collision_flags.astype(jnp.int32))
+        return collision_cumsum > 0
     
     #@partial(jax.jit, static_argnums=(0))
     def iteration_step(self, a_opt, a_cov, rng_da, env_state, reference_traj, obs_array):
@@ -109,7 +114,9 @@ class MPPI():
                 states, reference_traj
             ) # [n_samples, n_steps] 
             
-        reward = reward - (collision_flags * 10.0) 
+        collision_mask = jax.vmap(self.mask_after_collision)(collision_flags)
+        reward = jnp.where(collision_mask, -100.0, reward)
+        
         R = jax.vmap(self.returns)(reward) # [n_samples, n_steps], pylint: disable=invalid-name
         w = jax.vmap(self.weights, 1, 1)(R)  # [n_samples, n_steps]
         da_opt = jax.vmap(jnp.average, (1, None, 1))(da, 0, w)  # [n_steps, dim_a]
@@ -171,7 +178,7 @@ class MPPI():
         return jnp.asarray(states)
     
     
-    # @partial(jax.jit, static_argnums=(0))
+    @partial(jax.jit, static_argnums=(0))
     def convert_cartesian_to_frenet_jax(self, states):
         states_shape = (*states.shape[:-1], 7)
         states = states.reshape(-1, states.shape[-1])

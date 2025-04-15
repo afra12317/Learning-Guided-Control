@@ -18,6 +18,17 @@
 
 ---
 ## 📌 Next Steps todos
-- [ ] Add obstacle avoidance
+- [x] Add obstacle avoidance
+- [ ] Use GPU + Cache to accelerate code
 - [ ] Tune on the vehicle
 - [ ] Improve running speed
+
+---
+
+## 🚧 Current Issues in the Code
+
+1. **Unstable performance**.  
+2. **Too slow** .  
+3. **Missing reference speed** – there should be a reference velocity, and the reward should include a `vel_cost` term to encourage speed tracking.
+
+---

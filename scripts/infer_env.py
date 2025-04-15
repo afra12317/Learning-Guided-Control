@@ -67,6 +67,10 @@ class InferEnv():
         return self.update_fn(x, u * self.norm_params[0, :2]/2)
     
     @partial(jax.jit, static_argnums=(0,))
+    def step_batch(self, x_batch, u_batch, rng_key=None):
+        return jax.vmap(self.step, in_axes=(0, 0, None))(x_batch, u_batch, rng_key)
+    
+    @partial(jax.jit, static_argnums=(0,))
     def reward_fn_sey(self, s, reference):
         """
         reward function for the state s with respect to the reference trajectory

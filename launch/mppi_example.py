@@ -14,11 +14,14 @@ def generate_launch_description():
             executable='vis_node.py',
             name='vis_node',
             output='screen'
-        ),
+        )
+    ])
+    
+'''
         Node(
             package='mppi_control',
             executable='trajectory_error_evaluator.py',
             name='trajectory_error_evaluator',
             output='screen'
         ),
-    ])
+'''

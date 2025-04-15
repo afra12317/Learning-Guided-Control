@@ -20,6 +20,7 @@
 ## 📌 Next Steps todos
 - [x] Add obstacle avoidance
 - [ ] Use GPU + Cache to accelerate code
+- [ ] Add a warm start
 - [ ] Tune on the vehicle
 - [ ] Improve running speed
 
@@ -28,7 +29,7 @@
 ## 🚧 Current Issues in the Code
 
 1. **Unstable performance**.  
-2. **Too slow** .  
+2. **Too slow** - Don't know how to optimize dynamically sized array。
 3. **Missing reference speed** – there should be a reference velocity, and the reward should include a `vel_cost` term to encourage speed tracking.
 
 ---

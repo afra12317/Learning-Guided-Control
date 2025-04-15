@@ -7,6 +7,7 @@ sys.path.append("../")
 from functools import partial
 import numpy as np
 from jax import debug
+from jax import lax
 
 class MPPI():
     """An MPPI based planner."""
@@ -25,8 +26,9 @@ class MPPI():
         self.env = env
         self.jrng = jrng
         self.init_state(self.env, self.a_shape)
-        self.accum_matrix = jnp.triu(jnp.ones((self.n_steps, self.n_steps)))
+        self.accum_matrix = jax.device_put(jnp.triu(jnp.ones((self.n_steps, self.n_steps))))
         self.track = track
+        self.a_cov_reset = (self.a_std**2) * jnp.eye(self.a_shape)
 
 
     def init_state(self, env, a_shape):
@@ -60,13 +62,21 @@ class MPPI():
     
     @partial(jax.jit, static_argnums=(0))
     def shift_prev_opt(self, a_opt, a_cov):
+        '''
         a_opt = jnp.concatenate([a_opt[1:, :],
                                 jnp.expand_dims(jnp.zeros((self.a_shape,)),
                                                 axis=0)])  # [n_steps, a_shape]
+        '''
+        a_opt = a_opt.at[:-1].set(a_opt[1:])
+        a_opt = a_opt.at[-1].set(jnp.zeros((self.a_shape,)))
         if self.a_cov_shift:
+            '''
             a_cov = jnp.concatenate([a_cov[1:, :],
                                     jnp.expand_dims((self.a_std**2)*jnp.eye(self.a_shape),
                                                     axis=0)])
+            '''
+            a_cov = a_cov.at[:-1].set(a_cov[1:])
+            a_cov = a_cov.at[-1].set(self.a_cov_reset)
         else:
             a_cov = self.a_cov_init
         return a_opt, a_cov
@@ -87,57 +97,54 @@ class MPPI():
         collision_cumsum = jnp.cumsum(collision_flags.astype(jnp.int32))
         return collision_cumsum > 0
     
-    #@partial(jax.jit, static_argnums=(0))
+    #@partial(jax.jit, static_argnums=(0,))
     def iteration_step(self, a_opt, a_cov, rng_da, env_state, reference_traj, obs_array):
         rng_da, rng_da_split1, rng_da_split2 = jax.random.split(rng_da, 3)
+        da, actions, states = self._jit_rollout_block(a_opt, rng_da, rng_da_split1, env_state)
+        collision_flags = jax.vmap(self.check_collision, in_axes=(0, None))(states, obs_array)
+        collision_mask = jax.vmap(self.mask_after_collision)(collision_flags)
+
+        if self.config.state_predictor in self.config.cartesian_models:
+            reward = jax.vmap(self.env.reward_fn_xy, in_axes=(0, None))(states, reference_traj)
+        else:
+            reward = jax.vmap(self.env.reward_fn_sey, in_axes=(0, None))(states, reference_traj)
+
+        reward = jnp.where(collision_mask, -100.0, reward)
+        a_opt, a_cov = self._jit_optimization_block(a_opt, a_cov, da, reward)
+        if self.config.render:
+            traj_opt = self.rollout(a_opt, env_state, rng_da_split2)
+        else:
+            traj_opt = states[0]
+        return a_opt, a_cov, states, traj_opt
+    
+    @partial(jax.jit, static_argnums=(0,))
+    def _jit_rollout_block(self, a_opt, rng_da, rng_split_key, env_state):
         da = jax.random.truncated_normal(
             rng_da,
             -jnp.ones_like(a_opt) * self.a_std - a_opt,
             jnp.ones_like(a_opt) * self.a_std - a_opt,
             shape=(self.n_samples, self.n_steps, self.a_shape)
-        )  # [n_samples, n_steps, dim_a]
-
-        actions = jnp.clip(jnp.expand_dims(a_opt, axis=0) + da, -1.0, 1.0)
-        states = jax.vmap(self.rollout, in_axes=(0, None, None))(
-            actions, env_state, rng_da_split1
         )
-        collision_flags = jax.vmap(self.check_collision, in_axes=(0, None))(
-            states, obs_array
-        ) 
-        
-        if self.config.state_predictor in self.config.cartesian_models:
-            reward = jax.vmap(self.env.reward_fn_xy, in_axes=(0, None))(
-                states, reference_traj
-            )
-        else:
-            reward = jax.vmap(self.env.reward_fn_sey, in_axes=(0, None))(
-                states, reference_traj
-            ) # [n_samples, n_steps] 
-            
-        collision_mask = jax.vmap(self.mask_after_collision)(collision_flags)
-        reward = jnp.where(collision_mask, -100.0, reward)
-        
-        R = jax.vmap(self.returns)(reward) # [n_samples, n_steps], pylint: disable=invalid-name
+        actions = jnp.clip(jnp.expand_dims(a_opt, axis=0) + da, -1.0, 1.0)
+        env_states = jnp.tile(env_state[None, :], (actions.shape[0], 1))
+        states = self.rollout_batch(actions, env_states, rng_split_key)
+        return da, actions, states
+    
+    @partial(jax.jit, static_argnums=(0,))
+    def _jit_optimization_block(self, a_opt, a_cov, da, reward):
+        R = jax.vmap(self.returns)(reward)  # [n_samples, n_steps]
         w = jax.vmap(self.weights, 1, 1)(R)  # [n_samples, n_steps]
-        da_opt = jax.vmap(jnp.average, (1, None, 1))(da, 0, w)  # [n_steps, dim_a]
-        a_opt = jnp.clip(a_opt + da_opt, -1.0, 1.0)  # [n_steps, dim_a]
-        if self.adaptive_covariance:
-            a_cov = jax.vmap(jax.vmap(jnp.outer))(
-                da, da
-            )  # [n_samples, n_steps, a_shape, a_shape]
-            a_cov = jax.vmap(jnp.average, (1, None, 1))(
-                a_cov, 0, w
-            )  # a_cov: [n_steps, a_shape, a_shape]
-            a_cov = a_cov + jnp.eye(self.a_shape)*0.00001 # prevent loss of rank when one sample is heavily weighted
-            
-        if self.config.render:
-            traj_opt = self.rollout(a_opt, env_state, rng_da_split2)
-        else:
-            traj_opt = states[0]
-            
-        return a_opt, a_cov, states, traj_opt
+        da_opt = jax.vmap(jnp.average, (1, None, 1))(da, 0, w)
+        a_opt = jnp.clip(a_opt + da_opt, -1.0, 1.0)
 
-   
+        if self.adaptive_covariance:
+            a_cov = da[..., :, None] * da[..., None, :]  
+            a_cov = jax.vmap(jnp.average, (1, None, 1))(a_cov, 0, w)
+            a_cov = a_cov + jnp.eye(self.a_shape) * 1e-5
+
+        return a_opt, a_cov
+
+    
     @partial(jax.jit, static_argnums=(0))
     def returns(self, r):
         # r: [n_steps]
@@ -164,7 +171,7 @@ class MPPI():
         # actions: # a_0, ..., a_{n_steps}. [n_steps, a_shape]
         # states: # s_1, ..., s_{n_steps+1}. [n_steps, env_state_shape]
         """
-    
+        '''
         def rollout_step(env_state, actions, rng_key):
             actions = jnp.reshape(actions, self.env.a_shape)
             (env_state, env_var, mb_dyna) = self.env.step(env_state, actions, rng_key)
@@ -176,7 +183,19 @@ class MPPI():
             states.append(env_state)
             
         return jnp.asarray(states)
-    
+        '''
+        def rollout_step(carry, action):
+            env_state = carry
+            action = jnp.reshape(action, self.env.a_shape)
+            env_state, _, _ = self.env.step(env_state, action, rng_key)
+            return env_state, env_state  # carry, output
+
+        _, states = lax.scan(rollout_step, env_state, actions)
+        return states
+        
+    @partial(jax.jit, static_argnums=(0,))
+    def rollout_batch(self, actions_batch, env_states, rng_key):
+        return jax.vmap(self.rollout, in_axes=(0, 0, None))(actions_batch, env_states, rng_key)
     
     @partial(jax.jit, static_argnums=(0))
     def convert_cartesian_to_frenet_jax(self, states):

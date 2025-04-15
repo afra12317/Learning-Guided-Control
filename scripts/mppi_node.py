@@ -9,20 +9,16 @@ import tf_transformations
 from geometry_msgs.msg import Point, PoseStamped
 from nav_msgs.msg import Odometry
 from ackermann_msgs.msg import AckermannDriveStamped
-from std_msgs.msg import Float32MultiArray, MultiArrayDimension
-from utils.ros_np_multiarray import to_multiarray_f32, to_numpy_f32
+from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Float32MultiArray
 
+from utils.ros_np_multiarray import to_multiarray_f32, to_numpy_f32
 from infer_env import InferEnv
 from mppi_tracking import MPPI
 import utils.utils as utils
 from utils.jax_utils import numpify
 import utils.jax_utils as jax_utils
 from utils.Track import Track
-#jax.config.update("jax_compilation_cache_dir", "/home/nvidia/jax_cache") 
-
-## This is a demosntration of how to use the MPPI planner with the Roboracer
-## Zirui Zang 2025/04/07
-
 
 class MPPI_Node(Node):
     def __init__(self):
@@ -30,112 +26,116 @@ class MPPI_Node(Node):
         self.config = utils.ConfigYAML()
         self.config.load_file('./config/config_example.yaml')
         self.config.norm_params = np.array(self.config.norm_params).T
+
         if self.config.random_seed is None:
             self.config.random_seed = np.random.randint(0, 1e6)
         jrng = jax_utils.oneLineJaxRNG(self.config.random_seed)    
-        
+
         map_info = np.genfromtxt(self.config.map_dir + 'map_info.txt', delimiter='|', dtype='str')
         track, self.config = Track.load_map(self.config.map_dir, map_info, self.config.map_ind, self.config)
-        # track.waypoints[:, 3] += 0.5 * np.pi
+
         self.infer_env = InferEnv(track, self.config, DT=self.config.sim_time_step)
         self.mppi = MPPI(self.config, self.infer_env, jrng)
 
-        # Do a dummy call on the MPPI to initialize the variables
-        state_c_0 = np.asarray([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.control = np.asarray([0.0, 0.0])
-        reference_traj, waypoint_ind = self.infer_env.get_refernece_traj(state_c_0.copy(), self.config.ref_vel, self.config.n_steps)
-        self.mppi.update(jnp.asarray(state_c_0), jnp.asarray(reference_traj))
-        self.get_logger().info('MPPI initialized')
-        
-        
-        qos = rclpy.qos.QoSProfile(history=rclpy.qos.QoSHistoryPolicy.KEEP_LAST,
-                                   depth=1,
+        self.lidar_scan = None
+
+        # Dummy init
+        state_c_0 = np.zeros(7)
+        reference_traj, _ = self.infer_env.get_refernece_traj(state_c_0.copy(), self.config.ref_vel, self.config.n_steps)
+        self.mppi.update(jnp.asarray(state_c_0), jnp.asarray(reference_traj), np.zeros((0, 2)))
+
+        self.get_logger().info("MPPI with obstacle avoidance initialized")
+
+        qos = rclpy.qos.QoSProfile(history=rclpy.qos.QoSHistoryPolicy.KEEP_LAST, depth=1,
                                    reliability=rclpy.qos.QoSReliabilityPolicy.RELIABLE,
                                    durability=rclpy.qos.QoSDurabilityPolicy.VOLATILE)
-        # create subscribers
-        if self.config.is_sim:
-            self.pose_sub = self.create_subscription(Odometry, "/ego_racecar/odom", self.pose_callback, qos)
-        else:
-            self.pose_sub = self.create_subscription(Odometry, "/pf/pose/odom", self.pose_callback, qos)
-        # publishers
+
+        topic = "/ego_racecar/odom" if self.config.is_sim else "/pf/pose/odom"
+        self.pose_sub = self.create_subscription(Odometry, topic, self.pose_callback, qos)
+        self.scan_sub = self.create_subscription(LaserScan, "/scan", self.scan_callback, qos)
+
         self.drive_pub = self.create_publisher(AckermannDriveStamped, "/drive", qos)
         self.reference_pub = self.create_publisher(Float32MultiArray, "/reference_arr", qos)
         self.opt_traj_pub = self.create_publisher(Float32MultiArray, "/opt_traj_arr", qos)
 
-    def pose_callback(self, pose_msg):
-        """
-        Callback function for subscribing to particle filter's inferred pose.
-        This funcion saves the current pose of the car and obtain the goal
-        waypoint from the pure pursuit module.
+    def scan_callback(self, msg):
+        self.lidar_scan = msg
 
-        Args: 
-            pose_msg (PoseStamped): incoming message from subscribed topic
-        """
+    def process_lidar_to_obstacle_points(self, scan_msg, car_state):
+        ranges = np.array(scan_msg.ranges)
+        angle_min = scan_msg.angle_min
+        angle_increment = scan_msg.angle_increment
+        angles = angle_min + np.arange(len(ranges)) * angle_increment
+        ranges = np.clip(ranges, 0.0, 10.0)  # Limit range to avoid noise
+
+        xs = ranges * np.cos(angles)
+        ys = ranges * np.sin(angles)
+
+        in_front = (xs > 0) & (xs < 10.0) & (np.abs(ys) < 2.5)
+        xs = xs[in_front]
+        ys = ys[in_front]
+
+        theta = car_state[4]
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+
+        global_xs = car_state[0] + (xs * cos_theta - ys * sin_theta)
+        global_ys = car_state[1] + (xs * sin_theta + ys * cos_theta)
+
+        return np.vstack((global_xs, global_ys)).T
+
+    def pose_callback(self, pose_msg):
+        if self.lidar_scan is None:
+            self.get_logger().warn("LiDAR scan not received yet.")
+            return
+
         pose = pose_msg.pose.pose
         twist = pose_msg.twist.twist
-
-        # Beta calculated by the arctan of the lateral velocity and the longitudinal velocity
         beta = np.arctan2(twist.linear.y, twist.linear.x)
+        quat = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
+        yaw = tf_transformations.euler_from_quaternion(quat)[2]
 
-        # For demonstration, let’s assume we have these quaternion values
-        quaternion = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
-
-        # Convert quaternion to Euler angles
-        euler = tf_transformations.euler_from_quaternion(quaternion)
-
-        # Extract the Z-angle (yaw)
-        theta = euler[2]  # Yaw is the third element
-
-        state_c_0 = np.asarray([
+        state_c_0 = np.array([
             pose.position.x,
             pose.position.y,
             self.control[0],
             max(twist.linear.x, self.config.init_vel),
-            theta,
+            yaw,
             twist.angular.z,
-            beta,
+            beta
         ])
-        find_waypoint_vel = max(self.config.ref_vel, twist.linear.x)
-        reference_traj, waypoint_ind = self.infer_env.get_refernece_traj(state_c_0.copy(), find_waypoint_vel, self.config.n_steps)
 
-        ## MPPI call
-        self.mppi.update(jnp.asarray(state_c_0), jnp.asarray(reference_traj))
-        mppi_control = numpify(self.mppi.a_opt[0]) * self.config.norm_params[0, :2]/2
+        obs_points = self.process_lidar_to_obstacle_points(self.lidar_scan, state_c_0)
+        reference_traj, _ = self.infer_env.get_refernece_traj(state_c_0.copy(), max(twist.linear.x, self.config.ref_vel), self.config.n_steps)
+
+        self.mppi.update(jnp.asarray(state_c_0), jnp.asarray(reference_traj), obs_points)
+        mppi_control = numpify(self.mppi.a_opt[0]) * self.config.norm_params[0, :2] / 2
         self.control[0] = float(mppi_control[0]) * self.config.sim_time_step + self.control[0]
         self.control[1] = float(mppi_control[1]) * self.config.sim_time_step + twist.linear.x
-        
-        if self.reference_pub.get_subscription_count() > 0:
-            ref_traj_cpu = numpify(reference_traj)
-            arr_msg = to_multiarray_f32(ref_traj_cpu.astype(np.float32))
-            self.reference_pub.publish(arr_msg)
-
-        if self.opt_traj_pub.get_subscription_count() > 0:
-            opt_traj_cpu = numpify(self.mppi.traj_opt)
-            arr_msg = to_multiarray_f32(opt_traj_cpu.astype(np.float32))
-            self.opt_traj_pub.publish(arr_msg)
-
-        if twist.linear.x < self.config.init_vel:
-            self.control = [0.0, self.config.init_vel * 2]
 
         if np.isnan(self.control).any() or np.isinf(self.control).any():
-            self.control = np.array([0.0, 0.0])
+            self.get_logger().warn("Invalid control. Resetting.")
+            self.control = np.array([0.0, self.config.init_vel])
             self.mppi.a_opt = np.zeros_like(self.mppi.a_opt)
 
-        # Publish the control command
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = self.get_clock().now().to_msg()
         drive_msg.header.frame_id = "base_link"
         drive_msg.drive.steering_angle = self.control[0]
         drive_msg.drive.speed = self.control[1]
-        # self.get_logger().info(f"Steering Angle: {drive_msg.drive.steering_angle}, Speed: {drive_msg.drive.speed}")
         self.drive_pub.publish(drive_msg)
-        
+
+        if self.reference_pub.get_subscription_count() > 0:
+            self.reference_pub.publish(to_multiarray_f32(numpify(reference_traj).astype(np.float32)))
+
+        if self.opt_traj_pub.get_subscription_count() > 0:
+            self.opt_traj_pub.publish(to_multiarray_f32(numpify(self.mppi.traj_opt).astype(np.float32)))
 
 def main(args=None):
     rclpy.init(args=args)
     mppi_node = MPPI_Node()
     rclpy.spin(mppi_node)
-
     mppi_node.destroy_node()
     rclpy.shutdown()
 

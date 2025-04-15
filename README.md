@@ -29,7 +29,14 @@
 ## 🚧 Current Issues in the Code
 
 1. **Unstable performance**.  
-2. **Too slow** - Don't know how to optimize dynamically sized array。
+2. **Too slow** - Don't know how to optimize dynamically sized array.
+
+Zirui's method: First, exclude walls. Then, use convert_cartesian_to_frenet_jax to identify trajectories that go out of track (i.e., intersect with the track boundaries). Treat these as out-of-track flags.
+
+Real obstacles should be detected separately (e.g., from LiDAR), and stored as a fixed-length array. To keep it JAX-compatible, limit the number of obstacles and apply padding if there are fewer. Then use JAX to compute collision detection for all obstacles in batch.
+
 3. **Missing reference speed** – there should be a reference velocity, and the reward should include a `vel_cost` term to encourage speed tracking.
+
+4. Detect collisions between waypoints (i.e., trajectory segments), not just at individual states.
 
 ---

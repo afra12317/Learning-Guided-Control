@@ -20,6 +20,12 @@ from utils.jax_utils import numpify
 import utils.jax_utils as jax_utils
 from utils.Track import Track
 
+
+import cProfile
+import pstats
+import atexit
+
+
 class MPPI_Node(Node):
     def __init__(self):
         super().__init__('mppi_node')
@@ -135,9 +141,24 @@ class MPPI_Node(Node):
 def main(args=None):
     rclpy.init(args=args)
     mppi_node = MPPI_Node()
-    rclpy.spin(mppi_node)
-    mppi_node.destroy_node()
-    rclpy.shutdown()
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+
+    def shutdown_profiler():
+        profiler.disable()
+        profiler.dump_stats("mppi_profile.prof")
+        print("[Profiler] Saved to mppi_profile.prof")
+        stats = pstats.Stats(profiler).sort_stats('cumulative')
+        stats.print_stats(20)  
+
+    atexit.register(shutdown_profiler)
+
+    try:
+        rclpy.spin(mppi_node)
+    finally:
+        mppi_node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

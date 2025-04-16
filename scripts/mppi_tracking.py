@@ -82,7 +82,7 @@ class MPPI():
         return a_opt, a_cov
     
     
-    def check_collision(self, states, obstacle_points, collision_radius=0.23):
+    def check_collision(self, states, obstacle_points, collision_radius=0.3):
         def check_state_timestep(state_t):
             dx = obstacle_points[:, 0] - state_t[0]
             dy = obstacle_points[:, 1] - state_t[1]
@@ -97,24 +97,35 @@ class MPPI():
         collision_cumsum = jnp.cumsum(collision_flags.astype(jnp.int32))
         return collision_cumsum > 0
     
-    #@partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def iteration_step(self, a_opt, a_cov, rng_da, env_state, reference_traj, obs_array):
         rng_da, rng_da_split1, rng_da_split2 = jax.random.split(rng_da, 3)
         da, actions, states = self._jit_rollout_block(a_opt, rng_da, rng_da_split1, env_state)
+        
+        # states: [n_samples, T, state_dim]
+        # obs_array: [max_obs, 2] (padded with invalid values like 1000.)
+
+        # Check for collisions
         collision_flags = jax.vmap(self.check_collision, in_axes=(0, None))(states, obs_array)
         collision_mask = jax.vmap(self.mask_after_collision)(collision_flags)
 
+        # Compute rewards
         if self.config.state_predictor in self.config.cartesian_models:
             reward = jax.vmap(self.env.reward_fn_xy, in_axes=(0, None))(states, reference_traj)
         else:
             reward = jax.vmap(self.env.reward_fn_sey, in_axes=(0, None))(states, reference_traj)
 
         reward = jnp.where(collision_mask, -100.0, reward)
+
+        # Optimization
         a_opt, a_cov = self._jit_optimization_block(a_opt, a_cov, da, reward)
+
+        # Output trajectory
         if self.config.render:
             traj_opt = self.rollout(a_opt, env_state, rng_da_split2)
         else:
             traj_opt = states[0]
+
         return a_opt, a_cov, states, traj_opt
     
     @partial(jax.jit, static_argnums=(0,))

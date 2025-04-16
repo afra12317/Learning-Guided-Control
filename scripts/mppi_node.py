@@ -241,7 +241,7 @@ class MPPI_Node(Node):
             marker.color.b = 0.0
             marker.color.a = 1.0
             marker.lifetime.sec = 0
-            marker.lifetime.nanosec = int(1e8)  # 0.1 秒
+            marker.lifetime.nanosec = int(1e8)  
             marker_array.markers.append(marker)
 
         self.obstacle_marker_pub.publish(marker_array)

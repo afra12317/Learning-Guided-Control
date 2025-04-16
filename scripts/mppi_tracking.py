@@ -83,12 +83,39 @@ class MPPI():
     @staticmethod
     @partial(jax.jit, static_argnames=("collision_radius",))
     def check_collision_batch(states, obstacle_points, collision_radius=0.32):
-        def check_state_timestep(state_t):
-            dx = obstacle_points[:, 0] - state_t[0]
-            dy = obstacle_points[:, 1] - state_t[1]
-            dist_sq = dx**2 + dy**2
-            return jnp.any(dist_sq < collision_radius**2)
-        return jax.vmap(check_state_timestep)(states)
+        def segment_circle_collision(p0, p1, circle_center):
+            # Segment from p0 to p1, check if it intersects circle at circle_center with given radius
+            d = p1 - p0
+            f = p0 - circle_center
+
+            a = jnp.dot(d, d)
+            b = 2 * jnp.dot(f, d)
+            c = jnp.dot(f, f) - collision_radius**2
+
+            discriminant = b**2 - 4 * a * c
+
+            def has_intersection(disc):
+                sqrt_disc = jnp.sqrt(disc)
+                t1 = (-b - sqrt_disc) / (2 * a)
+                t2 = (-b + sqrt_disc) / (2 * a)
+                return jnp.logical_or(
+                    jnp.logical_and(t1 >= 0.0, t1 <= 1.0),
+                    jnp.logical_and(t2 >= 0.0, t2 <= 1.0),
+                )
+
+            return jnp.where(discriminant < 0, False, has_intersection(discriminant))
+
+        def check_segment_collision(p0, p1):
+            return jnp.any(jax.vmap(lambda obs: segment_circle_collision(p0, p1, obs))(obstacle_points))
+
+        # For each segment: states[i] to states[i+1]
+        p0s = states[:-1, :2]
+        p1s = states[1:, :2]
+
+        collision_results = jax.vmap(check_segment_collision)(p0s, p1s)
+
+        # Append False for the first point (since no segment starts at 0th point)
+        return jnp.concatenate([jnp.array([False]), collision_results])
     
     @partial(jax.jit, static_argnums=(0,))
     def mask_after_collision(self, collision_flags):

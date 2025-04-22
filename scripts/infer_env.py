@@ -116,7 +116,7 @@ class InferEnv:
             jnp.cos(reference[1:, 4]) - jnp.cos(state[:, 4])
         )
 
-        return 20 * xy_cost + 10 * yaw_cost
+        return 20 * xy_cost + 10 * yaw_cost + vel_cost
         # return 4 * xy_cost + 1 * yaw_cost + 3 * vel
 
     def calc_ref_trajectory_kinematic(self, state, cx, cy, cyaw, sp):

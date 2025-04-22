@@ -64,9 +64,12 @@ class MPPI():
         self.a_opt, self.a_cov, self.states, self.traj_opt = self.mppi_loop(
             self.a_opt, self.a_cov, env_state, reference_traj, obs_array, self.jrng.new_key()
         )
+    
+        '''
         if self.track is not None and self.config.state_predictor in self.config.cartesian_models:
             self.states = self.convert_cartesian_to_frenet_jax(self.states)
             self.traj_opt = self.convert_cartesian_to_frenet_jax(self.traj_opt)
+        '''
         self.sampled_states = self.states
 
     @partial(jax.jit, static_argnums=(0,))
@@ -82,7 +85,7 @@ class MPPI():
 
     @staticmethod
     @partial(jax.jit, static_argnames=("collision_radius",))
-    def check_collision_batch(states, obstacle_points, collision_radius=0.32):
+    def check_collision_batch(states, obstacle_points, collision_radius=0.23):
         def check_state_timestep(state_t):
             dx = obstacle_points[:, 0] - state_t[0]
             dy = obstacle_points[:, 1] - state_t[1]
@@ -109,6 +112,16 @@ class MPPI():
         else:
             reward = jax.vmap(self.env.reward_fn_sey, in_axes=(0, None))(states, reference_traj)
         reward = jnp.where(collision_mask, -100.0, reward)
+        
+        flat_states = states.reshape((-1, states.shape[-1]))
+        frenet = self.track.vmap_cartesian_to_frenet_jax(flat_states[:, (0, 1, 4)])
+        d_vals = frenet[:, 1]
+        off_track = jnp.abs(d_vals) > 0.5
+        off_track = off_track.reshape(states.shape[0], states.shape[1])
+        off_track_cumsum = jnp.cumsum(off_track.astype(jnp.int32), axis=1)
+        off_track_mask = off_track_cumsum > 0
+        reward = jnp.where(off_track_mask, -100.0, reward)
+        
         a_opt, a_cov = self._jit_optimization_block(a_opt, a_cov, da, reward)
         if self.config.render:
             traj_opt = self.rollout(a_opt, env_state, rng_da_split2)

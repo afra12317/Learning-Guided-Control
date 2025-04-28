@@ -28,6 +28,7 @@ install(PROGRAMS
     scripts/pure_pursuit_node.py
     scripts/mppi_PP.py
     scripts/obs.py
+    scripts/rl_node.py
     DESTINATION lib/${PROJECT_NAME}
 )
 

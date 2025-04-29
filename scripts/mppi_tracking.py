@@ -85,7 +85,7 @@ class MPPI():
 
     @staticmethod
     @partial(jax.jit, static_argnames=("collision_radius",))
-    def check_collision_batch(states, obstacle_points, collision_radius=0.23):
+    def check_collision_batch(states, obstacle_points, collision_radius=0.3):
         def check_state_timestep(state_t):
             dx = obstacle_points[:, 0] - state_t[0]
             dy = obstacle_points[:, 1] - state_t[1]

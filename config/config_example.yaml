@@ -14,8 +14,8 @@ is_sim: true
 map_dir: /home/flo/lab_ws/src/Learning-Guided-Control-MPPI/waypoints/
 map_ind: 0
 n_iterations: 1
-n_samples: 256
-n_steps: 10
+n_samples: 128
+n_steps: 8
 norm_params:
 - - 4.0
   - -2.0
@@ -40,4 +40,4 @@ max_obs: 150
 left: 0.5
 right: 0.5
 invalid_pos:  -1000.0
-safety_margin: 0.2
+safety_margin: 0.15

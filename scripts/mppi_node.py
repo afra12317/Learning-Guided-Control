@@ -221,29 +221,34 @@ class MPPI_Node(Node):
             obs_valid = jnp.concatenate([obs_valid, pad], axis=0)
         return obs_valid[:max_obs]
     
+    def moving_average_filter(self, data, window_size=3):
+        if len(data) < window_size:
+            return data
+        return np.convolve(data, np.ones(window_size)/window_size, mode='same')
+    
     def process_lidar_to_obstacle_points(self, scan_msg, car_state):
         ranges = np.asarray(scan_msg.ranges, dtype=np.float32)
         angle_min = scan_msg.angle_min
         angle_increment = scan_msg.angle_increment
-        num_angles = len(ranges)
-
-        valid_mask = np.isfinite(ranges) & (ranges > 0.05) & (ranges < 10.0)
+        smoothed_ranges = self.moving_average_filter(ranges, window_size=5)
+        valid_mask = np.isfinite(smoothed_ranges) & (smoothed_ranges > 0.05) & (smoothed_ranges < 7.0)
         valid_indices = np.where(valid_mask)[0]
-
         if valid_indices.size == 0:
             return np.full(
                 (self.config.max_obs, 2), self.config.invalid_pos, dtype=np.float32
             )
 
-        angles = angle_min + angle_increment * valid_indices
-        valid_ranges = ranges[valid_indices]
+        step = 3
+        downsampled_indices = valid_indices[::step]
+        angles = angle_min + angle_increment * downsampled_indices
+        sampled_ranges = smoothed_ranges[downsampled_indices]
 
         raw_obs_points = transform_lidar_points(
-            jnp.array(valid_ranges),
-            jnp.array(angles),
-            car_state[0],
-            car_state[1],
-            car_state[4]
+        jnp.array(sampled_ranges),
+        jnp.array(angles),
+        car_state[0],
+        car_state[1],
+        car_state[4]
         )
         raw_obs_points = np.array(raw_obs_points)
         mask = self.batch_is_obs_on_track(raw_obs_points)

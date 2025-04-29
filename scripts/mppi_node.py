@@ -112,7 +112,7 @@ class MPPI_Node(Node):
         )
 
         self.reference_traj = np.zeros((11, 7), dtype=np.float32)
-        self.reference_sub = self.create_subscription(Float32MultiArray, '/rl/ref_path', self.reference_callback, qos)
+        self.reference_sub = self.create_subscription(Float32MultiArray, '/rl/ref_traj', self.reference_callback, qos)
 
         self.center_kdtree = cKDTree(self.centerline)
 
@@ -299,7 +299,7 @@ class MPPI_Node(Node):
         #     max(twist.linear.x, self.config.ref_vel),
         #     self.config.n_steps,
         # )
-
+        # print('here')
         self.mppi.update(
             jnp.asarray(state_c_0), jnp.asarray(self.reference_traj), obs_points
         )
@@ -311,10 +311,10 @@ class MPPI_Node(Node):
             float(mppi_control[1]) * self.config.sim_time_step + twist.linear.x
         )
         
-        if self.reference_pub.get_subscription_count() > 0:
-            ref_traj_cpu = numpify(self.reference_traj)
-            arr_msg = to_multiarray_f32(ref_traj_cpu.astype(np.float32))
-            self.reference_pub.publish(arr_msg)
+        # if self.reference_pub.get_subscription_count() > 0:
+        #     ref_traj_cpu = numpify(self.reference_traj)
+        #     arr_msg = to_multiarray_f32(ref_traj_cpu.astype(np.float32))
+        #     self.reference_pub.publish(arr_msg)
 
         if self.opt_traj_pub.get_subscription_count() > 0:
             opt_traj_cpu = numpify(self.mppi.traj_opt)
@@ -343,6 +343,7 @@ class MPPI_Node(Node):
 
         
     def reference_callback(self, msg: Float32MultiArray):
+        self.reference_pub.publish(msg)
         self.reference_traj = to_numpy_f32(msg)
             
 

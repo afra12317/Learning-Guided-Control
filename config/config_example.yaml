@@ -15,7 +15,7 @@ map_dir: /home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/waypoints/
 map_ind: 0
 n_iterations: 1
 n_samples: 128
-n_steps: 8
+n_steps: 10
 norm_params:
 - - 4.0
   - -2.0

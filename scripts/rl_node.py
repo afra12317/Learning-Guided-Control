@@ -14,6 +14,7 @@ from f1tenth_gym.envs.f110_env import F110Env, Track
 import gymnasium as gym
 import pathlib
 from utils.ros_np_multiarray import to_multiarray_f32
+from stable_baselines3 import PPO
 
 class RLNode(Node):
     
@@ -33,7 +34,9 @@ class RLNode(Node):
         self.LF = 0.15875
         self.LR = 0.17145
         self.SCAN_INDEX = np.arange(0, 1080, 1080 // 36)
-        self.model = ort.InferenceSession('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/out.onnx')
+        # self.model = ort.InferenceSession('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/out.onnx')
+        self.model = PPO.load('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model.zip',
+                              env=None)
         self.CONTROL_MAX = np.array([0.4189, 5.0])
         # create an environment backend for simulating actions to predict future states and lidar scans
         path = '/home/ubuntu/f1final/f1tenth_gym/maps/levine/levine.yaml'
@@ -127,9 +130,10 @@ class RLNode(Node):
         self.traj_publisher.publish(msg)
         
     def run_model(self, obs):
-        control = self.model.run(None, obs)
-        control = control[0][0, 0]
-        control = np.clip(control, -1.0, 1.0)
+        control, _ = self.model.predict(obs, deterministic=True)
+        control = control[0,0]
+        # print(control)
+        # control = np.clip(control, -1.0, 1.0)
         control = control * self.CONTROL_MAX
         steer = float(control[0])
         vel = float(control[1])

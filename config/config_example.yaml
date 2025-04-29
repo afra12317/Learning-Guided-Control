@@ -11,7 +11,7 @@ exp_name: mppi_tracking
 friction: 1.0
 init_vel: 2.0
 is_sim: true
-map_dir: ./waypoints/
+map_dir: /home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/waypoints/
 map_ind: 0
 n_iterations: 1
 n_samples: 512

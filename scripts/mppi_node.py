@@ -19,6 +19,7 @@ import utils.utils as utils
 from utils.jax_utils import numpify
 import utils.jax_utils as jax_utils
 from utils.Track import Track
+import os
 
 import cProfile
 import pstats
@@ -47,7 +48,7 @@ class MPPI_Node(Node):
     def __init__(self):
         super().__init__('mppi_node')
         self.config = utils.ConfigYAML()
-        self.config.load_file('./config/config_example.yaml')
+        self.config.load_file('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml')
         self.config.norm_params = np.array(self.config.norm_params).T
 
         if self.config.random_seed is None:

@@ -47,7 +47,7 @@ class RLNode(Node):
                                 "model": "st",
                                 "num_beams" : 36,
                                 "observation_config": {"type": "original"},
-                                "params": F110Env.f1fifth_vehicle_params(),
+                                "params": F110Env.f1tenth_vehicle_params(),
                                 "reset_config": {"type": "map_random_static"},
                                 "scale": 1.0,
                             },

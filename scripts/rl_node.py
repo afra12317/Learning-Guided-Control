@@ -7,11 +7,13 @@ from nav_msgs.msg import Odometry
 from ackermann_msgs.msg import AckermannDriveStamped
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker, MarkerArray
+from std_msgs.msg import Float32MultiArray
 import onnxruntime as ort
 import numpy as np
 from f1tenth_gym.envs.f110_env import F110Env, Track
 import gymnasium as gym
 import pathlib
+from utils.ros_np_multiarray import to_multiarray_f32
 
 class RLNode(Node):
     
@@ -22,6 +24,7 @@ class RLNode(Node):
         self.lidar_subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 10)
         ## publisher for visualizing predicted t+1 pose
         self.viz_publisher = self.create_publisher(MarkerArray, '/viz_rl', 10)
+        self.traj_publisher = self.create_publisher(Float32MultiArray, '/rl/ref_traj', 10)
 
         self.laser_scan = 10 * np.ones((1, 36), dtype=np.float32)
         self.pose = np.zeros((1,3), dtype=np.float32)
@@ -65,6 +68,7 @@ class RLNode(Node):
         self.laser_scan[0] = values[self.SCAN_INDEX]
 
     def pose_callback(self, msg: Odometry):
+        ref_traj = np.zeros((11, 7), dtype=np.float32)
         pos = msg.pose.pose.position
         ori = msg.pose.pose.orientation
         lin_vel = msg.twist.twist.linear
@@ -83,16 +87,17 @@ class RLNode(Node):
         steer, vel = self.run_model(obs)
         self.heading[0,0] = steer
         self.heading[0,1] = self.get_beta(steer)
-        drive = AckermannDriveStamped()
-        drive.drive.speed = vel
-        drive.drive.steering_angle = steer
-        self.drive_publisher.publish(drive)
+        ref_traj[0] = self.to_mppi_state(pos.x, pos.y, yaw, ori_vel.z, lin_vel.x, lin_vel.y, steer)
+        # drive = AckermannDriveStamped()
+        # drive.drive.speed = vel
+        # drive.drive.steering_angle = steer
+        # self.drive_publisher.publish(drive)
 
         ## calculate simulated positions
         xs = []
         ys = []
         yaws = []
-        for _ in range(self.N_SIM):
+        for i in range(self.N_SIM):
             obs, _, _, _, _ = self.env.step(np.array([[steer, vel]]))
             scan = np.zeros((1, 36), dtype=np.float32)
             scan[0] = obs['scans'][0, self.SCAN_INDEX]
@@ -111,8 +116,16 @@ class RLNode(Node):
                    'vel' : np.array([[vel_x, vel_y, vel_ori]], dtype=np.float32),
                    'heading' : np.array([[steer, beta]], dtype=np.float32)}
             steer, vel = self.run_model(obs)
+            ref_traj[i+1] = self.to_mppi_state(x, y, yaw, vel_ori, vel_x, vel_y, steer)
         self.visualize_future_pose(xs, ys, yaws)
+        self.traj_publisher.publish(to_multiarray_f32(ref_traj))
 
+    def publish_traj(self, traj: np.ndarray):
+        traj = traj.flatten()
+        msg = Float32MultiArray()
+        msg.data = traj.tolist()
+        self.traj_publisher.publish(msg)
+        
     def run_model(self, obs):
         control = self.model.run(None, obs)
         control = control[0][0, 0]
@@ -124,6 +137,19 @@ class RLNode(Node):
 
     def get_beta(self, steer):
         return np.arctan(self.LR * np.tan(steer) / (self.LF + self.LR))
+    
+    def to_mppi_state(self, x, y, yaw, yaw_rate, vx, vy, delta):
+        # convert to body fram velocities
+        R = np.array(([[np.cos(yaw), np.sin(yaw)],
+                       [-np.sin(yaw), np.cos(yaw)]]), dtype=np.float32)
+        vx, vy = R @ np.array([vx, vy], dtype=np.float32)
+        return np.array([x,
+                        y,
+                        delta,
+                        np.sqrt(vx**2 + vy**2),
+                        (yaw + np.pi) % (2 * np.pi) - np.pi,
+                        yaw_rate,
+                        np.arctan2(vy, vx)])
 
     def visualize_future_pose(self, xs, ys, yaws):
         msg = MarkerArray()

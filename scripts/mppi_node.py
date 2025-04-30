@@ -29,6 +29,7 @@ from jax import jit, lax
 import jax.numpy as jnp
 from functools import partial
 from scipy.spatial import cKDTree
+from time import time
 
 
 
@@ -295,6 +296,7 @@ class MPPI_Node(Node):
         )
 
         self.obs_points = self.process_lidar_to_obstacle_points(self.lidar_scan, self.state_c_0)
+        # self.output_control()
         #obs_points = self.filter_and_pad_obstacles(self.lidar_scan, state_c_0)
         # reference_traj, _ = self.infer_env.get_refernece_traj_jax(
         #     state_c_0.copy(),
@@ -306,10 +308,7 @@ class MPPI_Node(Node):
         #self.get_logger().info(f"velocity: {drive_msg.drive.speed}")
         #self.publish_obstacle_markers(obs_points)
 
-        
-    def reference_callback(self, msg: Float32MultiArray):
-        self.reference_pub.publish(msg)
-        self.reference_traj = to_numpy_f32(msg)
+    def output_control(self):
         self.mppi.update(
             jnp.asarray(self.state_c_0), jnp.asarray(self.reference_traj), self.obs_points
         )
@@ -321,15 +320,15 @@ class MPPI_Node(Node):
             float(mppi_control[1]) * self.config.sim_time_step + self.twist.linear.x
         )
         
-        # if self.reference_pub.get_subscription_count() > 0:
-        #     ref_traj_cpu = numpify(self.reference_traj)
-        #     arr_msg = to_multiarray_f32(ref_traj_cpu.astype(np.float32))
-        #     self.reference_pub.publish(arr_msg)
+        if self.reference_pub.get_subscription_count() > 0:
+            ref_traj_cpu = numpify(self.reference_traj)
+            arr_msg = to_multiarray_f32(ref_traj_cpu.astype(np.float32))
+            self.reference_pub.publish(arr_msg)
 
-        if self.opt_traj_pub.get_subscription_count() > 0:
-            opt_traj_cpu = numpify(self.mppi.traj_opt)
-            arr_msg = to_multiarray_f32(opt_traj_cpu.astype(np.float32))
-            self.opt_traj_pub.publish(arr_msg)
+        # if self.opt_traj_pub.get_subscription_count() > 0:
+        #     opt_traj_cpu = numpify(self.mppi.traj_opt)
+        #     arr_msg = to_multiarray_f32(opt_traj_cpu.astype(np.float32))
+        #     self.opt_traj_pub.publish(arr_msg)
         '''
         if twist.linear.x < self.config.init_vel:
             self.control = [0.0, self.config.init_vel * 2]
@@ -348,6 +347,13 @@ class MPPI_Node(Node):
         drive_msg.drive.speed = max(drive_msg.drive.speed, 3.0)
         #drive_msg.drive.speed = min(drive_msg.drive.speed, 0.0)
         self.drive_pub.publish(drive_msg)
+        
+    def reference_callback(self, msg: Float32MultiArray):
+        # self.reference_pub.publish(msg)
+        t0 = time()
+        self.reference_traj = to_numpy_f32(msg)
+        self.output_control()
+        self.get_logger().info(f'callback took {time()-t0} seconds')
             
 
     def publish_obstacle_markers(self, obstacles):

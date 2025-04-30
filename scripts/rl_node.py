@@ -10,11 +10,13 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import Float32MultiArray
 import onnxruntime as ort
 import numpy as np
-from f1tenth_gym.envs.f110_env import F110Env, Track
+from f1tenth_gym.envs.f110_env import F110Env, Track, Simulator
+from f1tenth_gym.envs.base_classes import ScanSimulator2D
 import gymnasium as gym
 import pathlib
 from utils.ros_np_multiarray import to_multiarray_f32
 from stable_baselines3 import PPO
+from time import time
 
 class RLNode(Node):
     
@@ -46,12 +48,14 @@ class RLNode(Node):
         path = '/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/levine/levine_map.yaml'
         path = pathlib.Path(path)
         loaded_map = Track.from_track_path(path)
+        # self.car_sim = Simulator(F110Env.f1tenth_vehicle_params(), 1, 12345, , )
+        # self.laser_sim = ScanSimulator2D()
         self.env = gym.make(
                             "f1tenth_gym:f1tenth-v0",
                             config={
                                 "map": loaded_map,
                                 "num_agents": 1,
-                                "timestep": 0.1,
+                                "timestep": 0.05,
                                 "integrator": "rk4",
                                 "control_input": ["speed", "steering_angle"],
                                 "model": "st",
@@ -65,8 +69,8 @@ class RLNode(Node):
                         )
         # store the base occupancy grid for manipulation when receiving a scan
         self.base_occupancy = loaded_map.occupancy_map.copy()
-        self.N_SIM = 3 # number of future states to predict
-        self.DRIVE = True       
+        self.N_SIM = 20 # number of future states to predict
+        self.DRIVE = False       
 
 
     def laser_callback(self, msg: LaserScan):
@@ -92,6 +96,7 @@ class RLNode(Node):
 
 
     def pose_callback(self, msg: Odometry):
+        t0 = time()
         ref_traj = np.zeros((self.N_SIM+1, 7), dtype=np.float32)
         pos = msg.pose.pose.position
         ori = msg.pose.pose.orientation
@@ -105,7 +110,6 @@ class RLNode(Node):
         self.vels[0,1] = lin_vel.y
         self.vels[0,2] = ori_vel.z
 
-        self.env.reset(options={"poses" : np.array([[pos.x, pos.y, yaw]])})
 
         obs = {'scan' : self.laser_scan, 'pose' : self.pose, 'vel' : self.vels, 'heading' : self.heading}
         # print(obs)
@@ -113,20 +117,24 @@ class RLNode(Node):
         self.heading[0,0] = steer
         self.heading[0,1] = self.get_beta(steer)
         ref_traj[0] = self.to_mppi_state(pos.x, pos.y, yaw, ori_vel.z, lin_vel.x, lin_vel.y, steer)
-        if self.DRIVE:
+        if True:#self.DRIVE:
             drive = AckermannDriveStamped()
             drive.drive.speed = vel
             drive.drive.steering_angle = steer
             self.drive_publisher.publish(drive)
 
         ## calculate simulated positions
+        # x = pos.x
+        # y = pos.y
+        # yaw = self.pose[0, 2]
         xs = []
         ys = []
         yaws = []
+        self.env.reset(options={"poses" : np.array([[pos.x, pos.y, yaw]])})
         for i in range(self.N_SIM):
             obs, _, _, _, _ = self.env.step(np.array([[steer, vel]]))
-            scan = np.zeros((1, self.laser_scan.shape[1]), dtype=np.float32)
-            scan[0] = obs['scans'][0, self.SCAN_INDEX]
+            # scan = np.zeros((1, self.laser_scan.shape[1]), dtype=np.float32)
+            scan = obs['scans'][:, self.SCAN_INDEX]
             x = float(obs['poses_x'][0])
             y = float(obs['poses_y'][0])
             yaw = float(obs['poses_theta'][0])
@@ -143,9 +151,11 @@ class RLNode(Node):
                    'heading' : np.array([[steer, beta]], dtype=np.float32)}
             steer, vel = self.run_model(obs)
             ref_traj[i+1] = self.to_mppi_state(x, y, yaw, vel_ori, vel_x, vel_y, steer)
-        # self.visualize_future_pose(xs, ys, yaws)
+        self.visualize_future_pose(xs, ys, yaws)
         if not self.DRIVE:
             self.traj_publisher.publish(to_multiarray_f32(ref_traj))
+        self.get_logger().info(f'callback took {time()-t0} seconds')
+
 
     def publish_traj(self, traj: np.ndarray):
         traj = traj.flatten()
@@ -167,13 +177,13 @@ class RLNode(Node):
     
     def to_mppi_state(self, x, y, yaw, yaw_rate, vx, vy, delta):
         # convert to body fram velocities
-        R = np.array(([[np.cos(yaw), np.sin(yaw)],
-                       [-np.sin(yaw), np.cos(yaw)]]), dtype=np.float32)
-        vx, vy = R @ np.array([vx, vy], dtype=np.float32)
+        # R = np.array(([[np.cos(yaw), np.sin(yaw)],
+        #                [-np.sin(yaw), np.cos(yaw)]]), dtype=np.float32)
+        # vx, vy = R @ np.array([vx, vy], dtype=np.float32)
         return np.array([x,
                         y,
                         delta,
-                        np.sqrt(vx**2 + vy**2),
+                        vx,
                         (yaw + np.pi) % (2 * np.pi) - np.pi,
                         yaw_rate,
                         np.arctan2(vy, vx)])

@@ -21,7 +21,7 @@ class RLNode(Node):
     def __init__(self):
         super().__init__('rl_node')
         self.drive_publisher = self.create_publisher(AckermannDriveStamped, '/drive', 10)
-        self.pose_subscriber = self.create_subscription(Odometry, '/ego_racecar/odom', self.pose_callback, 1)
+        self.pose_subscriber = self.create_subscription(Odometry, '/pf/pose/odom', self.pose_callback, 1)
         self.lidar_subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 1)
         ## publisher for visualizing predicted t+1 pose
         self.viz_publisher = self.create_publisher(MarkerArray, '/viz_rl', 1)
@@ -35,7 +35,7 @@ class RLNode(Node):
         N_BEAMS = 1080
         self.SCAN_INDEX = np.arange(0, 1080, 1080 // N_BEAMS)
         self.laser_scan = 10 * np.ones((1, N_BEAMS), dtype=np.float32)
-        self.model = ort.InferenceSession('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_4ms.onnx')
+        self.model = ort.InferenceSession('/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_4ms.onnx')
         # self.model = PPO.load('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip',
                             #   env=None)
         # self.model = PPO.load("/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip", env=None)
@@ -43,7 +43,7 @@ class RLNode(Node):
         self.get_logger().info('model loaded successfully')
         self.CONTROL_MAX = np.array([0.4189, 4.0])
         # create an environment backend for simulating actions to predict future states and lidar scans
-        path = '/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/levine/levine_map.yaml'
+        path = 'src/Learning-Guided-Control-MPPI/config/levine/levine_map.yaml'
         path = pathlib.Path(path)
         loaded_map = Track.from_track_path(path)
         self.env = gym.make(
@@ -66,7 +66,7 @@ class RLNode(Node):
         # store the base occupancy grid for manipulation when receiving a scan
         self.base_occupancy = loaded_map.occupancy_map.copy()
         self.N_SIM = 3 # number of future states to predict
-        self.DRIVE = True       
+        self.DRIVE = False       
 
 
     def laser_callback(self, msg: LaserScan):

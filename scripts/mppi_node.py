@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import rclpy
 from rclpy.node import Node
 import tf_transformations
-from geometry_msgs.msg import Point, PoseStamped
+from geometry_msgs.msg import Point, PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from ackermann_msgs.msg import AckermannDriveStamped
 from sensor_msgs.msg import LaserScan
@@ -75,15 +75,15 @@ class MPPI_Node(Node):
         self.lidar_scan = None
         self.track = track
         # Dummy init
-        state_c_0 = np.zeros(7)
+        self.state_c_0 = np.zeros(7)
         reference_traj, _ = self.infer_env.get_refernece_traj_jax(
-            state_c_0.copy(), self.config.ref_vel, self.config.n_steps
+            self.state_c_0.copy(), self.config.ref_vel, self.config.n_steps
         )
         self.mppi.update(
-            jnp.asarray(state_c_0), jnp.asarray(reference_traj), np.zeros((0, 2))
+            jnp.asarray(self.state_c_0), jnp.asarray(reference_traj), np.zeros((0, 2))
         )
 
-        self.get_logger().info("MPPI with obstacle avoidance initialized")
+        self.get_logger().info(f"MPPI with obstacle avoidance initialized for {self.config.n_steps} steps of control")
 
         qos = rclpy.qos.QoSProfile(
             history=rclpy.qos.QoSHistoryPolicy.KEEP_LAST,
@@ -110,11 +110,13 @@ class MPPI_Node(Node):
         self.obstacle_marker_pub = self.create_publisher(
             MarkerArray, "/mppi/obstacle_markers", qos
         )
+        self.obs_points = np.zeros((self.config.max_obs,2))
 
-        self.reference_traj = np.zeros((11, 7), dtype=np.float32)
+        self.reference_traj = np.zeros((self.config.n_steps+1, 7), dtype=np.float32)
         self.reference_sub = self.create_subscription(Float32MultiArray, '/rl/ref_traj', self.reference_callback, qos)
 
         self.center_kdtree = cKDTree(self.centerline)
+        self.twist = Twist()
 
     def load_centerline_from_csv(self, filepath):
         df = pd.read_csv(
@@ -270,8 +272,8 @@ class MPPI_Node(Node):
             return
 
         pose = pose_msg.pose.pose
-        twist = pose_msg.twist.twist
-        beta = np.arctan2(twist.linear.y, twist.linear.x)
+        self.twist = pose_msg.twist.twist
+        beta = np.arctan2(self.twist.linear.y, self.twist.linear.x)
         quat = [
             pose.orientation.x,
             pose.orientation.y,
@@ -280,19 +282,19 @@ class MPPI_Node(Node):
         ]
         yaw = tf_transformations.euler_from_quaternion(quat)[2]
 
-        state_c_0 = np.array(
+        self.state_c_0 = np.array(
             [
                 pose.position.x,
                 pose.position.y,
                 self.control[0],
-                max(twist.linear.x, self.config.init_vel),
+                max(self.twist.linear.x, self.config.init_vel),
                 yaw,
-                twist.angular.z,
+                self.twist.angular.z,
                 beta,
             ]
         )
 
-        obs_points = self.process_lidar_to_obstacle_points(self.lidar_scan, state_c_0)
+        self.obs_points = self.process_lidar_to_obstacle_points(self.lidar_scan, self.state_c_0)
         #obs_points = self.filter_and_pad_obstacles(self.lidar_scan, state_c_0)
         # reference_traj, _ = self.infer_env.get_refernece_traj_jax(
         #     state_c_0.copy(),
@@ -300,15 +302,23 @@ class MPPI_Node(Node):
         #     self.config.n_steps,
         # )
         # print('here')
+        
+        #self.get_logger().info(f"velocity: {drive_msg.drive.speed}")
+        #self.publish_obstacle_markers(obs_points)
+
+        
+    def reference_callback(self, msg: Float32MultiArray):
+        self.reference_pub.publish(msg)
+        self.reference_traj = to_numpy_f32(msg)
         self.mppi.update(
-            jnp.asarray(state_c_0), jnp.asarray(self.reference_traj), obs_points
+            jnp.asarray(self.state_c_0), jnp.asarray(self.reference_traj), self.obs_points
         )
         mppi_control = numpify(self.mppi.a_opt[0]) * self.config.norm_params[0, :2] / 2
         self.control[0] = (
             float(mppi_control[0]) * self.config.sim_time_step + self.control[0]
         )
         self.control[1] = (
-            float(mppi_control[1]) * self.config.sim_time_step + twist.linear.x
+            float(mppi_control[1]) * self.config.sim_time_step + self.twist.linear.x
         )
         
         # if self.reference_pub.get_subscription_count() > 0:
@@ -338,13 +348,6 @@ class MPPI_Node(Node):
         drive_msg.drive.speed = max(drive_msg.drive.speed, 3.0)
         #drive_msg.drive.speed = min(drive_msg.drive.speed, 0.0)
         self.drive_pub.publish(drive_msg)
-        #self.get_logger().info(f"velocity: {drive_msg.drive.speed}")
-        #self.publish_obstacle_markers(obs_points)
-
-        
-    def reference_callback(self, msg: Float32MultiArray):
-        self.reference_pub.publish(msg)
-        self.reference_traj = to_numpy_f32(msg)
             
 
     def publish_obstacle_markers(self, obstacles):

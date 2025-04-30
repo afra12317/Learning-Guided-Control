@@ -1,4 +1,4 @@
-#!/home/ubuntu/venvs/numpy124/bin/python
+#!/usr/bin/env python3
 
 import rclpy
 from rclpy.node import Node
@@ -8,7 +8,7 @@ from ackermann_msgs.msg import AckermannDriveStamped
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import Float32MultiArray
-# import onnxruntime as ort
+import onnxruntime as ort
 import numpy as np
 from f1tenth_gym.envs.f110_env import F110Env, Track
 import gymnasium as gym
@@ -24,8 +24,8 @@ class RLNode(Node):
         self.pose_subscriber = self.create_subscription(Odometry, '/ego_racecar/odom', self.pose_callback, 1)
         self.lidar_subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 1)
         ## publisher for visualizing predicted t+1 pose
-        self.viz_publisher = self.create_publisher(MarkerArray, '/viz_rl', 10)
-        self.traj_publisher = self.create_publisher(Float32MultiArray, '/rl/ref_traj', 10)
+        self.viz_publisher = self.create_publisher(MarkerArray, '/viz_rl', 1)
+        self.traj_publisher = self.create_publisher(Float32MultiArray, '/rl/ref_traj', 1)
         
         self.pose = np.zeros((1,3), dtype=np.float32)
         self.vels = np.zeros((1,3), dtype=np.float32)
@@ -35,11 +35,11 @@ class RLNode(Node):
         N_BEAMS = 1080
         self.SCAN_INDEX = np.arange(0, 1080, 1080 // N_BEAMS)
         self.laser_scan = 10 * np.ones((1, N_BEAMS), dtype=np.float32)
-        # self.model = ort.InferenceSession('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/out.onnx')
+        self.model = ort.InferenceSession('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_4ms.onnx')
         # self.model = PPO.load('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip',
                             #   env=None)
-        self.model = PPO.load("/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip", env=None)
-        print(self.model.observation_space)
+        # self.model = PPO.load("/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip", env=None)
+        # print(self.model.observation_space)
         self.get_logger().info('model loaded successfully')
         self.CONTROL_MAX = np.array([0.4189, 4.0])
         # create an environment backend for simulating actions to predict future states and lidar scans
@@ -65,7 +65,7 @@ class RLNode(Node):
                         )
         # store the base occupancy grid for manipulation when receiving a scan
         self.base_occupancy = loaded_map.occupancy_map.copy()
-        self.N_SIM = 10 # number of future states to predict
+        self.N_SIM = 3 # number of future states to predict
         self.DRIVE = True       
 
 
@@ -92,7 +92,7 @@ class RLNode(Node):
 
 
     def pose_callback(self, msg: Odometry):
-        ref_traj = np.zeros((11, 7), dtype=np.float32)
+        ref_traj = np.zeros((self.N_SIM+1, 7), dtype=np.float32)
         pos = msg.pose.pose.position
         ori = msg.pose.pose.orientation
         lin_vel = msg.twist.twist.linear
@@ -108,6 +108,7 @@ class RLNode(Node):
         self.env.reset(options={"poses" : np.array([[pos.x, pos.y, yaw]])})
 
         obs = {'scan' : self.laser_scan, 'pose' : self.pose, 'vel' : self.vels, 'heading' : self.heading}
+        # print(obs)
         steer, vel = self.run_model(obs)
         self.heading[0,0] = steer
         self.heading[0,1] = self.get_beta(steer)
@@ -142,7 +143,7 @@ class RLNode(Node):
                    'heading' : np.array([[steer, beta]], dtype=np.float32)}
             steer, vel = self.run_model(obs)
             ref_traj[i+1] = self.to_mppi_state(x, y, yaw, vel_ori, vel_x, vel_y, steer)
-        self.visualize_future_pose(xs, ys, yaws)
+        # self.visualize_future_pose(xs, ys, yaws)
         if not self.DRIVE:
             self.traj_publisher.publish(to_multiarray_f32(ref_traj))
 
@@ -153,11 +154,10 @@ class RLNode(Node):
         self.traj_publisher.publish(msg)
         
     def run_model(self, obs):
-        control, _ = self.model.predict(obs, deterministic=True)
-        control = control[0,0]
-        # print(control)
-        # control = np.clip(control, -1.0, 1.0)
-        control = control * self.CONTROL_MAX
+        control = self.model.run(None, obs)
+
+        control = control[0][0,0]
+        control = control.clip(-1.0, 1.0) * self.CONTROL_MAX
         steer = float(control[0])
         vel = float(control[1])
         return steer, vel

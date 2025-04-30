@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/ubuntu/venvs/numpy124/bin/python
 
 import rclpy
 from rclpy.node import Node
@@ -8,7 +8,7 @@ from ackermann_msgs.msg import AckermannDriveStamped
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import Float32MultiArray
-import onnxruntime as ort
+# import onnxruntime as ort
 import numpy as np
 from f1tenth_gym.envs.f110_env import F110Env, Track
 import gymnasium as gym
@@ -21,25 +21,29 @@ class RLNode(Node):
     def __init__(self):
         super().__init__('rl_node')
         self.drive_publisher = self.create_publisher(AckermannDriveStamped, '/drive', 10)
-        self.pose_subscriber = self.create_subscription(Odometry, '/ego_racecar/odom', self.pose_callback, 10)
-        self.lidar_subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 10)
+        self.pose_subscriber = self.create_subscription(Odometry, '/ego_racecar/odom', self.pose_callback, 1)
+        self.lidar_subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 1)
         ## publisher for visualizing predicted t+1 pose
         self.viz_publisher = self.create_publisher(MarkerArray, '/viz_rl', 10)
         self.traj_publisher = self.create_publisher(Float32MultiArray, '/rl/ref_traj', 10)
-
-        self.laser_scan = 10 * np.ones((1, 36), dtype=np.float32)
+        
         self.pose = np.zeros((1,3), dtype=np.float32)
         self.vels = np.zeros((1,3), dtype=np.float32)
         self.heading = np.zeros((1,2), dtype=np.float32)
         self.LF = 0.15875
         self.LR = 0.17145
-        self.SCAN_INDEX = np.arange(0, 1080, 1080 // 36)
+        N_BEAMS = 1080
+        self.SCAN_INDEX = np.arange(0, 1080, 1080 // N_BEAMS)
+        self.laser_scan = 10 * np.ones((1, N_BEAMS), dtype=np.float32)
         # self.model = ort.InferenceSession('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/out.onnx')
-        self.model = PPO.load('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model.zip',
-                              env=None)
-        self.CONTROL_MAX = np.array([0.4189, 5.0])
+        # self.model = PPO.load('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip',
+                            #   env=None)
+        self.model = PPO.load("/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip", env=None)
+        print(self.model.observation_space)
+        self.get_logger().info('model loaded successfully')
+        self.CONTROL_MAX = np.array([0.4189, 4.0])
         # create an environment backend for simulating actions to predict future states and lidar scans
-        path = '/home/ubuntu/f1final/f1tenth_gym/maps/levine/levine.yaml'
+        path = '/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/levine/levine_map.yaml'
         path = pathlib.Path(path)
         loaded_map = Track.from_track_path(path)
         self.env = gym.make(
@@ -51,7 +55,7 @@ class RLNode(Node):
                                 "integrator": "rk4",
                                 "control_input": ["speed", "steering_angle"],
                                 "model": "st",
-                                "num_beams" : 36,
+                                "num_beams" : N_BEAMS,
                                 "observation_config": {"type": "original"},
                                 "params": F110Env.f1tenth_vehicle_params(),
                                 "reset_config": {"type": "map_random_static"},
@@ -59,16 +63,33 @@ class RLNode(Node):
                             },
                             render_mode="rgb_array",
                         )
-        self.N_SIM = 10 # number of future states to predict       
+        # store the base occupancy grid for manipulation when receiving a scan
+        self.base_occupancy = loaded_map.occupancy_map.copy()
+        self.N_SIM = 10 # number of future states to predict
+        self.DRIVE = True       
 
 
     def laser_callback(self, msg: LaserScan):
         min_range = msg.range_min
         max_range = msg.range_max
-        values = np.array(msg.ranges)
-        values[values < min_range] = min_range
-        values[values > max_range] = max_range
+        ang_min = msg.angle_min
+        ang_max = msg.angle_max
+        ang_inc = msg.angle_increment
+        values = np.array(msg.ranges, dtype=np.float32)
+        values = values.clip(min_range, max_range)
+        # lidar2world = self.lidar2world(values, np.arange(ang_min, ang_max, ang_inc))
         self.laser_scan[0] = values[self.SCAN_INDEX]
+       
+        # print(self.laser_scan.shape)
+
+    def lidar2world(self, lidar, angles):
+        lidar2body = np.array([lidar * np.cos(angles),
+                               lidar * np.sin(angles)]) # (2, 1080)
+        yaw = self.pose[0, 2]
+        R = np.array([[np.cos(yaw), -np.sin(yaw)],
+                      [np.sin(yaw), np.cos(yaw)]])
+        return R@lidar2body + np.array([[self.pose[0,0], self.pose[0,1]]])
+
 
     def pose_callback(self, msg: Odometry):
         ref_traj = np.zeros((11, 7), dtype=np.float32)
@@ -91,10 +112,11 @@ class RLNode(Node):
         self.heading[0,0] = steer
         self.heading[0,1] = self.get_beta(steer)
         ref_traj[0] = self.to_mppi_state(pos.x, pos.y, yaw, ori_vel.z, lin_vel.x, lin_vel.y, steer)
-        # drive = AckermannDriveStamped()
-        # drive.drive.speed = vel
-        # drive.drive.steering_angle = steer
-        # self.drive_publisher.publish(drive)
+        if self.DRIVE:
+            drive = AckermannDriveStamped()
+            drive.drive.speed = vel
+            drive.drive.steering_angle = steer
+            self.drive_publisher.publish(drive)
 
         ## calculate simulated positions
         xs = []
@@ -102,7 +124,7 @@ class RLNode(Node):
         yaws = []
         for i in range(self.N_SIM):
             obs, _, _, _, _ = self.env.step(np.array([[steer, vel]]))
-            scan = np.zeros((1, 36), dtype=np.float32)
+            scan = np.zeros((1, self.laser_scan.shape[1]), dtype=np.float32)
             scan[0] = obs['scans'][0, self.SCAN_INDEX]
             x = float(obs['poses_x'][0])
             y = float(obs['poses_y'][0])
@@ -121,7 +143,8 @@ class RLNode(Node):
             steer, vel = self.run_model(obs)
             ref_traj[i+1] = self.to_mppi_state(x, y, yaw, vel_ori, vel_x, vel_y, steer)
         self.visualize_future_pose(xs, ys, yaws)
-        self.traj_publisher.publish(to_multiarray_f32(ref_traj))
+        if not self.DRIVE:
+            self.traj_publisher.publish(to_multiarray_f32(ref_traj))
 
     def publish_traj(self, traj: np.ndarray):
         traj = traj.flatten()

@@ -296,6 +296,7 @@ class MPPI_Node(Node):
         )
 
         self.obs_points = self.process_lidar_to_obstacle_points(self.lidar_scan, self.state_c_0)
+        self.update_current_trajectory()
         self.output_control()
         #obs_points = self.filter_and_pad_obstacles(self.lidar_scan, state_c_0)
         # reference_traj, _ = self.infer_env.get_refernece_traj_jax(
@@ -307,6 +308,20 @@ class MPPI_Node(Node):
         
         #self.get_logger().info(f"velocity: {drive_msg.drive.speed}")
         #self.publish_obstacle_markers(obs_points)
+    
+    def update_current_trajectory(self):
+        '''
+        if we have not yet received an updated reference trajectory but have already moved along the
+        reference, up date the reference trajectory so that the waypoints do not go behind where the car is -
+        perform padding at the end with the last waypoint
+        '''
+        deltas = np.linalg.norm(self.reference_traj - self.state_c_0.reshape(1, -1), ord=2, axis=1)
+        closest = np.argmin(deltas)
+        N = self.config.n_steps
+        self.reference_traj[0] = self.state_c_0
+        self.reference_traj[1:N-closest] = self.reference_traj[closest+1:N]
+        self.reference_traj[N-closest:] = self.refernce_traj[-1]
+        
 
     def output_control(self):
         self.mppi.update(
@@ -352,8 +367,8 @@ class MPPI_Node(Node):
         # self.reference_pub.publish(msg)
         t0 = time()
         self.reference_traj = to_numpy_f32(msg)
-        self.output_control()
-        self.get_logger().info(f'callback took {time()-t0} seconds')
+        # self.output_control()
+        # self.get_logger().info(f'callback took {time()-t0} seconds')
             
 
     def publish_obstacle_markers(self, obstacles):

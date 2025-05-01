@@ -50,7 +50,7 @@ class RLNode(Node):
         self.get_logger().info('model loaded successfully')
         self.CONTROL_MAX = np.array([0.4189, 4.0])
         # create an environment backend for simulating actions to predict future states and lidar scans
-        path = '/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/levine/levine_map.yaml'
+        path = '/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/levine/levine.yaml'
         path = pathlib.Path(path)
         loaded_map = Track.from_track_path(path)
         # self.car_sim = Simulator(F110Env.f1tenth_vehicle_params(), 1, 12345, , )
@@ -60,7 +60,7 @@ class RLNode(Node):
                             config={
                                 "map": loaded_map,
                                 "num_agents": 1,
-                                "timestep": 0.05,
+                                "timestep": self.config.sim_time_step,
                                 "integrator": "rk4",
                                 "control_input": ["speed", "steering_angle"],
                                 "model": "st",
@@ -122,8 +122,8 @@ class RLNode(Node):
         self.heading[0,0] = steer
         self.heading[0,1] = self.get_beta(steer)
         ref_traj[0] = self.to_mppi_state(pos.x, pos.y, yaw, ori_vel.z, lin_vel.x, lin_vel.y, steer)
-        # if self.DRIVE:
-        if True:
+        if self.DRIVE:
+        # if True:
             drive = AckermannDriveStamped()
             drive.drive.speed = vel
             drive.drive.steering_angle = steer

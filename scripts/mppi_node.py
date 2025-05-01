@@ -296,7 +296,7 @@ class MPPI_Node(Node):
         )
 
         self.obs_points = self.process_lidar_to_obstacle_points(self.lidar_scan, self.state_c_0)
-        # self.output_control()
+        self.output_control()
         #obs_points = self.filter_and_pad_obstacles(self.lidar_scan, state_c_0)
         # reference_traj, _ = self.infer_env.get_refernece_traj_jax(
         #     state_c_0.copy(),

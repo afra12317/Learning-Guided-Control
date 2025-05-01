@@ -17,11 +17,16 @@ import pathlib
 from utils.ros_np_multiarray import to_multiarray_f32
 from stable_baselines3 import PPO
 from time import time
+import utils.utils as utils
 
 class RLNode(Node):
     
     def __init__(self):
         super().__init__('rl_node')
+        self.config = utils.ConfigYAML()
+        self.config.load_file(
+            "/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml"
+        )
         self.drive_publisher = self.create_publisher(AckermannDriveStamped, '/drive', 10)
         self.pose_subscriber = self.create_subscription(Odometry, '/ego_racecar/odom', self.pose_callback, 1)
         self.lidar_subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 1)
@@ -34,7 +39,7 @@ class RLNode(Node):
         self.heading = np.zeros((1,2), dtype=np.float32)
         self.LF = 0.15875
         self.LR = 0.17145
-        N_BEAMS = 1080
+        N_BEAMS = self.config.num_scans
         self.SCAN_INDEX = np.arange(0, 1080, 1080 // N_BEAMS)
         self.laser_scan = 10 * np.ones((1, N_BEAMS), dtype=np.float32)
         self.model = ort.InferenceSession('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_4ms.onnx')
@@ -69,8 +74,8 @@ class RLNode(Node):
                         )
         # store the base occupancy grid for manipulation when receiving a scan
         self.base_occupancy = loaded_map.occupancy_map.copy()
-        self.N_SIM = 20 # number of future states to predict
-        self.DRIVE = False       
+        self.N_SIM = self.config.n_steps # number of future states to predict
+        self.DRIVE = not self.config.use_mppi       
 
 
     def laser_callback(self, msg: LaserScan):
@@ -117,7 +122,8 @@ class RLNode(Node):
         self.heading[0,0] = steer
         self.heading[0,1] = self.get_beta(steer)
         ref_traj[0] = self.to_mppi_state(pos.x, pos.y, yaw, ori_vel.z, lin_vel.x, lin_vel.y, steer)
-        if True:#self.DRIVE:
+        # if self.DRIVE:
+        if True:
             drive = AckermannDriveStamped()
             drive.drive.speed = vel
             drive.drive.steering_angle = steer

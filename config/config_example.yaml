@@ -14,7 +14,7 @@ is_sim: true
 map_dir: /home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/waypoints/
 map_ind: 0
 n_iterations: 1
-n_samples: 128
+n_samples: 256
 n_steps: 8
 norm_params:
 - - 4.0
@@ -25,10 +25,10 @@ random_seed: 527787
 ref_vel: 2.0
 render: 1
 s_frame_max: 62.12059091197948
-sim_time_step: 0.05
+sim_time_step: 0.1
 state_predictor: dynamic_ST
 wpt_delim: ;
-wpt_path: levine/centerline.csv
+wpt_path: levine/levine.csv
 wpt_rowskip: 3
 wpt_thind: 3
 wpt_vind: 5

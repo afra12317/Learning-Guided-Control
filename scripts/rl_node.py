@@ -50,7 +50,7 @@ class RLNode(Node):
         self.get_logger().info('model loaded successfully')
         self.CONTROL_MAX = np.array([0.4189, 4.0])
         # create an environment backend for simulating actions to predict future states and lidar scans
-        path = '/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/levine/levine.yaml'
+        path = '/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/waypoints/levine/levine.yaml'
         path = pathlib.Path(path)
         loaded_map = Track.from_track_path(path)
         # self.car_sim = Simulator(F110Env.f1tenth_vehicle_params(), 1, 12345, , )

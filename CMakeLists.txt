@@ -29,6 +29,7 @@ install(PROGRAMS
     scripts/mppi_PP.py
     scripts/obs.py
     scripts/rl_node.py
+    scripts/mppi_node_og.py
     DESTINATION lib/${PROJECT_NAME}
 )
 

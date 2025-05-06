@@ -160,7 +160,7 @@ class RLNode(Node):
         self.visualize_future_pose(xs, ys, yaws)
         if not self.DRIVE:
             self.traj_publisher.publish(to_multiarray_f32(ref_traj))
-        self.get_logger().info(f'callback took {time()-t0} seconds')
+        # self.get_logger().info(f'callback took {time()-t0} seconds')
 
 
     def publish_traj(self, traj: np.ndarray):

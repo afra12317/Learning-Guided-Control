@@ -25,10 +25,14 @@ class RLNode(Node):
         super().__init__('rl_node')
         self.config = utils.ConfigYAML()
         self.config.load_file(
-            "/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml"
+            "/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml"
         )
+        if self.config.is_sim:
+            odom_topic = '/ego_racecar/odom'
+        else:
+            odom_topic = '/pf/pose/odom'
         self.drive_publisher = self.create_publisher(AckermannDriveStamped, '/drive', 10)
-        self.pose_subscriber = self.create_subscription(Odometry, '/ego_racecar/odom', self.pose_callback, 1)
+        self.pose_subscriber = self.create_subscription(Odometry, odom_topic, self.pose_callback, 1)
         self.lidar_subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 1)
         ## publisher for visualizing predicted t+1 pose
         self.viz_publisher = self.create_publisher(MarkerArray, '/viz_rl', 1)
@@ -42,7 +46,7 @@ class RLNode(Node):
         N_BEAMS = self.config.num_scans
         self.SCAN_INDEX = np.arange(0, 1080, 1080 // N_BEAMS)
         self.laser_scan = 10 * np.ones((1, N_BEAMS), dtype=np.float32)
-        self.model = ort.InferenceSession('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_4ms.onnx')
+        self.model = ort.InferenceSession('/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_4ms.onnx')
         # self.model = PPO.load('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip',
                             #   env=None)
         # self.model = PPO.load("/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip", env=None)
@@ -50,7 +54,7 @@ class RLNode(Node):
         self.get_logger().info('model loaded successfully')
         self.CONTROL_MAX = np.array([0.4189, 4.0])
         # create an environment backend for simulating actions to predict future states and lidar scans
-        path = '/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/waypoints/levine/levine.yaml'
+        path = '/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/waypoints/levine/levine.yaml'
         path = pathlib.Path(path)
         loaded_map = Track.from_track_path(path)
         # self.car_sim = Simulator(F110Env.f1tenth_vehicle_params(), 1, 12345, , )

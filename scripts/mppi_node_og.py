@@ -50,7 +50,7 @@ class MPPI_Node(Node):
         super().__init__("mppi_node")
         self.config = utils.ConfigYAML()
         self.config.load_file(
-            "/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml"
+            "/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml"
         )
         self.config.norm_params = np.array(self.config.norm_params).T
 

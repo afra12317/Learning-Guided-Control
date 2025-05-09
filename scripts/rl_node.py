@@ -25,7 +25,7 @@ class RLNode(Node):
         super().__init__('rl_node')
         self.config = utils.ConfigYAML()
         self.config.load_file(
-            "/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml"
+            "/home/ubuntu/f1tenth_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml"
         )
         if self.config.is_sim:
             odom_topic = '/ego_racecar/odom'
@@ -46,7 +46,7 @@ class RLNode(Node):
         N_BEAMS = self.config.num_scans
         self.SCAN_INDEX = np.arange(0, 1080, 1080 // N_BEAMS)
         self.laser_scan = 10 * np.ones((1, N_BEAMS), dtype=np.float32)
-        self.model = ort.InferenceSession('/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_4ms.onnx')
+        self.model = ort.InferenceSession('/home/ubuntu/f1tenth_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_4ms.onnx')
         # self.model = PPO.load('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip',
                             #   env=None)
         # self.model = PPO.load("/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip", env=None)
@@ -54,7 +54,7 @@ class RLNode(Node):
         self.get_logger().info('model loaded successfully')
         self.CONTROL_MAX = np.array([0.4189, 4.0])
         # create an environment backend for simulating actions to predict future states and lidar scans
-        path = '/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/waypoints/levine/levine.yaml'
+        path = '/home/ubuntu/f1tenth_ws/src/Learning-Guided-Control-MPPI/waypoints/levine/levine.yaml'
         path = pathlib.Path(path)
         loaded_map = Track.from_track_path(path)
         # self.car_sim = Simulator(F110Env.f1tenth_vehicle_params(), 1, 12345, , )

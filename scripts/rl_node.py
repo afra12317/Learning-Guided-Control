@@ -31,23 +31,12 @@ class RLNode(Node):
             odom_topic = '/ego_racecar/odom'
         else:
             odom_topic = '/pf/pose/odom'
-
-        qos = rclpy.qos.QoSProfile(
-            history=rclpy.qos.QoSHistoryPolicy.KEEP_LAST,
-            depth=1,
-            reliability=rclpy.qos.QoSReliabilityPolicy.RELIABLE,
-            durability=rclpy.qos.QoSDurabilityPolicy.VOLATILE,
-        )
-
         self.drive_publisher = self.create_publisher(AckermannDriveStamped, '/drive', 10)
         self.pose_subscriber = self.create_subscription(Odometry, odom_topic, self.pose_callback, 1)
         self.lidar_subscriber = self.create_subscription(LaserScan, '/scan', self.laser_callback, 1)
         ## publisher for visualizing predicted t+1 pose
         self.viz_publisher = self.create_publisher(MarkerArray, '/viz_rl', 1)
         self.traj_publisher = self.create_publisher(Float32MultiArray, '/rl/ref_traj', 1)
-        self.control_seq_publisher = self.create_publisher(
-            Float32MultiArray, "/rl/control_seq", qos
-        )
         
         self.pose = np.zeros((1,3), dtype=np.float32)
         self.vels = np.zeros((1,3), dtype=np.float32)
@@ -57,7 +46,7 @@ class RLNode(Node):
         N_BEAMS = self.config.num_scans
         self.SCAN_INDEX = np.arange(0, 1080, 1080 // N_BEAMS)
         self.laser_scan = 10 * np.ones((1, N_BEAMS), dtype=np.float32)
-        self.model = ort.InferenceSession('/home/ubuntu/f1tenth_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_4ms.onnx')
+        self.model = ort.InferenceSession('/home/ubuntu/f1tenth_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_540_4ms_t-025.onnx')
         # self.model = PPO.load('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip',
                             #   env=None)
         # self.model = PPO.load("/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip", env=None)
@@ -119,7 +108,6 @@ class RLNode(Node):
     def pose_callback(self, msg: Odometry):
         t0 = time()
         ref_traj = np.zeros((self.N_SIM+1, 7), dtype=np.float32)
-        control_seq = np.zeros((self.N_SIM, 2), dtype=np.float32)
         pos = msg.pose.pose.position
         ori = msg.pose.pose.orientation
         lin_vel = msg.twist.twist.linear
@@ -139,7 +127,6 @@ class RLNode(Node):
         self.heading[0,0] = steer
         self.heading[0,1] = self.get_beta(steer)
         ref_traj[0] = self.to_mppi_state(pos.x, pos.y, yaw, ori_vel.z, lin_vel.x, lin_vel.y, steer)
-        # control_seq[0] = [steer, vel]
         if self.DRIVE:
         # if True:
             drive = AckermannDriveStamped()
@@ -157,7 +144,6 @@ class RLNode(Node):
         yaws = []
         self.env.reset(options={"poses" : np.array([[pos.x, pos.y, yaw]])})
         for i in range(self.N_SIM):
-            control_seq[i] = [steer, vel]
             obs, _, _, _, _ = self.env.step(np.array([[steer, vel]]))
             # scan = np.zeros((1, self.laser_scan.shape[1]), dtype=np.float32)
             scan = obs['scans'][:, self.SCAN_INDEX]
@@ -177,14 +163,10 @@ class RLNode(Node):
                    'heading' : np.array([[steer, beta]], dtype=np.float32)}
             steer, vel = self.run_model(obs)
             ref_traj[i+1] = self.to_mppi_state(x, y, yaw, vel_ori, vel_x, vel_y, steer)
-           
         self.visualize_future_pose(xs, ys, yaws)
-        skip = int(self.config.sim_time_step / self.config.rl_sim_time_step)
-        ref_traj = ref_traj[::skip]
-        control_seq = control_seq[::skip]
+        ref_traj = ref_traj[::int(self.config.sim_time_step / self.config.rl_sim_time_step)]
         # assert ref_traj.shape[0] == self.config.n_steps + 1
         self.traj_publisher.publish(to_multiarray_f32(ref_traj))
-        self.control_seq_publisher.publish(to_multiarray_f32(control_seq))
         # self.get_logger().info(f'callback took {time()-t0} seconds')
 
 

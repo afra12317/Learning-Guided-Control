@@ -26,7 +26,7 @@ ref_vel: 2.0
 render: 1
 s_frame_max: 62.12059091197948
 sim_time_step: 0.1
-rl_sim_time_step: 0.01
+rl_sim_time_step: 0.025
 state_predictor: dynamic_ST
 wpt_delim: ;
 wpt_path: levine/levine.csv
@@ -36,7 +36,7 @@ wpt_vind: 5
 wpt_xind: 1
 wpt_yind: 2
 use_mppi: true
-num_scans: 1080
+num_scans: 540
 
 
 max_obs: 150

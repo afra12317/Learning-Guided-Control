@@ -32,10 +32,7 @@ from scipy.spatial import cKDTree
 from time import time
 
 
-
-def transform_lidar_points(
-    ranges, angles, car_x, car_y, theta
-):
+def transform_lidar_points(ranges, angles, car_x, car_y, theta):
     xs = ranges * jnp.cos(angles)
     ys = ranges * jnp.sin(angles)
     cos_theta = jnp.cos(theta)
@@ -43,7 +40,7 @@ def transform_lidar_points(
 
     global_xs = car_x + (xs * cos_theta - ys * sin_theta)
     global_ys = car_y + (xs * sin_theta + ys * cos_theta)
-    return jnp.stack((global_xs, global_ys), axis=-1)   
+    return jnp.stack((global_xs, global_ys), axis=-1)
 
 
 class MPPI_Node(Node):
@@ -51,7 +48,7 @@ class MPPI_Node(Node):
         super().__init__("mppi_node")
         self.config = utils.ConfigYAML()
         self.config.load_file(
-            "/home/ubuntu/f1tenth_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml"
+            "/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/config/config_example.yaml"
         )
         self.config.norm_params = np.array(self.config.norm_params).T
 
@@ -84,7 +81,9 @@ class MPPI_Node(Node):
             jnp.asarray(self.state_c_0), jnp.asarray(reference_traj), np.zeros((0, 2))
         )
 
-        self.get_logger().info(f"MPPI with obstacle avoidance initialized for {self.config.n_steps} steps of control")
+        self.get_logger().info(
+            f"MPPI with obstacle avoidance initialized for {self.config.n_steps} steps of control"
+        )
 
         qos = rclpy.qos.QoSProfile(
             history=rclpy.qos.QoSHistoryPolicy.KEEP_LAST,
@@ -111,10 +110,12 @@ class MPPI_Node(Node):
         self.obstacle_marker_pub = self.create_publisher(
             MarkerArray, "/mppi/obstacle_markers", qos
         )
-        self.obs_points = np.zeros((self.config.max_obs,2))
+        self.obs_points = np.zeros((self.config.max_obs, 2))
 
-        self.reference_traj = np.zeros((self.config.n_steps+1, 7), dtype=np.float32)
-        self.reference_sub = self.create_subscription(Float32MultiArray, '/rl/ref_traj', self.reference_callback, qos)
+        self.reference_traj = np.zeros((self.config.n_steps + 1, 7), dtype=np.float32)
+        self.reference_sub = self.create_subscription(
+            Float32MultiArray, "/rl/ref_traj", self.reference_callback, qos
+        )
 
         self.center_kdtree = cKDTree(self.centerline)
         self.twist = Twist()
@@ -178,7 +179,7 @@ class MPPI_Node(Node):
             & (np.abs(d + rights) > margin)
         )
         return mask
-    
+
     def filter_and_pad_obstacles(self, scan_msg, car_state):
         ranges = np.asarray(scan_msg.ranges, dtype=np.float32)
         mask_range = np.isfinite(ranges) & (ranges > 0.05) & (ranges < 5.0)
@@ -186,7 +187,9 @@ class MPPI_Node(Node):
 
         if idx.size == 0:
             print("No valid LiDAR points.")
-            return np.full((self.config.max_obs, 2), self.config.invalid_pos, dtype=np.float32)
+            return np.full(
+                (self.config.max_obs, 2), self.config.invalid_pos, dtype=np.float32
+            )
 
         angles = scan_msg.angle_min + scan_msg.angle_increment * idx
         filtered_ranges = ranges[idx]
@@ -194,7 +197,9 @@ class MPPI_Node(Node):
         front_mask = xs_local > 0.0
         if np.count_nonzero(front_mask) == 0:
             print("No points detected in front of the vehicle!")
-            return np.full((self.config.max_obs, 2), self.config.invalid_pos, dtype=np.float32)
+            return np.full(
+                (self.config.max_obs, 2), self.config.invalid_pos, dtype=np.float32
+            )
 
         filtered_ranges = filtered_ranges[front_mask]
         angles = angles[front_mask]
@@ -203,18 +208,16 @@ class MPPI_Node(Node):
             jnp.array(angles),
             car_state[0],
             car_state[1],
-            car_state[4]
+            car_state[4],
         )
         obs_world = np.array(obs_world_jax, dtype=np.float32)
         yaws = np.full((angles.shape[0],), 0, dtype=np.float32)
         obs_with_yaw = np.concatenate([obs_world, yaws[:, None]], axis=-1)
         frenet = self.track.vmap_cartesian_to_frenet_jax(jnp.array(obs_with_yaw))
 
-        d = frenet[:, 1] 
-    
-        mask = (
-            abs(d) < 0.5
-        )
+        d = frenet[:, 1]
+
+        mask = abs(d) < 0.5
         obs_valid = obs_world[mask]
         if len(obs_valid) == 0:
             print("No obstacles within track boundary (3.5m)!")
@@ -227,18 +230,22 @@ class MPPI_Node(Node):
             pad = jnp.tile(invalid_pos[None, :], (num_pad, 1))
             obs_valid = jnp.concatenate([obs_valid, pad], axis=0)
         return obs_valid[:max_obs]
-    
+
     def moving_average_filter(self, data, window_size=3):
         if len(data) < window_size:
             return data
-        return np.convolve(data, np.ones(window_size)/window_size, mode='same')
-    
+        return np.convolve(data, np.ones(window_size) / window_size, mode="same")
+
     def process_lidar_to_obstacle_points(self, scan_msg, car_state):
         ranges = np.asarray(scan_msg.ranges, dtype=np.float32)
         angle_min = scan_msg.angle_min
         angle_increment = scan_msg.angle_increment
         smoothed_ranges = self.moving_average_filter(ranges, window_size=5)
-        valid_mask = np.isfinite(smoothed_ranges) & (smoothed_ranges > 0.05) & (smoothed_ranges < 7.0)
+        valid_mask = (
+            np.isfinite(smoothed_ranges)
+            & (smoothed_ranges > 0.05)
+            & (smoothed_ranges < 7.0)
+        )
         valid_indices = np.where(valid_mask)[0]
         if valid_indices.size == 0:
             return np.full(
@@ -251,11 +258,11 @@ class MPPI_Node(Node):
         sampled_ranges = smoothed_ranges[downsampled_indices]
 
         raw_obs_points = transform_lidar_points(
-        jnp.array(sampled_ranges),
-        jnp.array(angles),
-        car_state[0],
-        car_state[1],
-        car_state[4]
+            jnp.array(sampled_ranges),
+            jnp.array(angles),
+            car_state[0],
+            car_state[1],
+            car_state[4],
         )
         raw_obs_points = np.array(raw_obs_points)
         mask = self.batch_is_obs_on_track(raw_obs_points)
@@ -295,37 +302,42 @@ class MPPI_Node(Node):
             ]
         )
 
-        self.obs_points = self.process_lidar_to_obstacle_points(self.lidar_scan, self.state_c_0)
+        self.obs_points = self.process_lidar_to_obstacle_points(
+            self.lidar_scan, self.state_c_0
+        )
         self.update_current_trajectory()
         self.output_control()
-        #obs_points = self.filter_and_pad_obstacles(self.lidar_scan, state_c_0)
+        # obs_points = self.filter_and_pad_obstacles(self.lidar_scan, state_c_0)
         # reference_traj, _ = self.infer_env.get_refernece_traj_jax(
         #     state_c_0.copy(),
         #     max(twist.linear.x, self.config.ref_vel),
         #     self.config.n_steps,
         # )
         # print('here')
-        
-        #self.get_logger().info(f"velocity: {drive_msg.drive.speed}")
-        #self.publish_obstacle_markers(obs_points)
-    
+
+        # self.get_logger().info(f"velocity: {drive_msg.drive.speed}")
+        # self.publish_obstacle_markers(obs_points)
+
     def update_current_trajectory(self):
-        '''
+        """
         if we have not yet received an updated reference trajectory but have already moved along the
         reference, up date the reference trajectory so that the waypoints do not go behind where the car is -
         perform padding at the end with the last waypoint
-        '''
-        deltas = np.linalg.norm(self.reference_traj - self.state_c_0.reshape(1, -1), ord=2, axis=1)
+        """
+        deltas = np.linalg.norm(
+            self.reference_traj - self.state_c_0.reshape(1, -1), ord=2, axis=1
+        )
         closest = np.argmin(deltas)
         N = self.config.n_steps
         self.reference_traj[0] = self.state_c_0
-        self.reference_traj[1:N-closest] = self.reference_traj[closest+1:N]
-        self.reference_traj[N-closest:] = self.reference_traj[-1]
-        
+        self.reference_traj[1 : N - closest] = self.reference_traj[closest + 1 : N]
+        self.reference_traj[N - closest :] = self.reference_traj[-1]
 
     def output_control(self):
         self.mppi.update(
-            jnp.asarray(self.state_c_0), jnp.asarray(self.reference_traj), self.obs_points
+            jnp.asarray(self.state_c_0),
+            jnp.asarray(self.reference_traj),
+            self.obs_points,
         )
         mppi_control = numpify(self.mppi.a_opt[0]) * self.config.norm_params[0, :2] / 2
         self.control[0] = (
@@ -334,7 +346,7 @@ class MPPI_Node(Node):
         self.control[1] = (
             float(mppi_control[1]) * self.config.sim_time_step + self.twist.linear.x
         )
-        
+
         if self.reference_pub.get_subscription_count() > 0:
             ref_traj_cpu = numpify(self.reference_traj)
             arr_msg = to_multiarray_f32(ref_traj_cpu.astype(np.float32))
@@ -344,32 +356,31 @@ class MPPI_Node(Node):
         #     opt_traj_cpu = numpify(self.mppi.traj_opt)
         #     arr_msg = to_multiarray_f32(opt_traj_cpu.astype(np.float32))
         #     self.opt_traj_pub.publish(arr_msg)
-        '''
+        """
         if twist.linear.x < self.config.init_vel:
             self.control = [0.0, self.config.init_vel * 2]
-        '''
-        
+        """
+
         if np.isnan(self.control).any() or np.isinf(self.control).any():
             self.control = np.array([0.0, 0.0])
             self.mppi.a_opt = np.zeros_like(self.mppi.a_opt)
-            
 
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = self.get_clock().now().to_msg()
         drive_msg.header.frame_id = "base_link"
-        drive_msg.drive.steering_angle = self.control[0]
+        drive_msg.drive.steering_angle = self.control[0] * 2 / 3
         drive_msg.drive.speed = self.control[1]
-        drive_msg.drive.speed = max(drive_msg.drive.speed, 3.0)
-        #drive_msg.drive.speed = min(drive_msg.drive.speed, 0.0)
+        # drive_msg.drive.speed = 2.5
+        drive_msg.drive.speed = max(drive_msg.drive.speed, 2.5)
+        # drive_msg.drive.speed = min(drive_msg.drive.speed, 0.0)
         self.drive_pub.publish(drive_msg)
-        
+
     def reference_callback(self, msg: Float32MultiArray):
         # self.reference_pub.publish(msg)
         t0 = time()
         self.reference_traj = to_numpy_f32(msg)
         # self.output_control()
         # self.get_logger().info(f'callback took {time()-t0} seconds')
-            
 
     def publish_obstacle_markers(self, obstacles):
         marker_array = MarkerArray()

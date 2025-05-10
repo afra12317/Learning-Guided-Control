@@ -64,7 +64,7 @@ class RLNode(Node):
                             config={
                                 "map": loaded_map,
                                 "num_agents": 1,
-                                "timestep": self.config.sim_time_step,
+                                "timestep": self.config.rl_sim_time_step,
                                 "integrator": "rk4",
                                 "control_input": ["speed", "steering_angle"],
                                 "model": "st",
@@ -78,7 +78,8 @@ class RLNode(Node):
                         )
         # store the base occupancy grid for manipulation when receiving a scan
         self.base_occupancy = loaded_map.occupancy_map.copy()
-        self.N_SIM = self.config.n_steps # number of future states to predict
+         # number of future states to predict on RL node side
+        self.N_SIM = int(self.config.n_steps * self.config.sim_time_step / self.config.rl_sim_time_step)
         self.DRIVE = not self.config.use_mppi       
 
 
@@ -132,6 +133,7 @@ class RLNode(Node):
             drive.drive.speed = vel
             drive.drive.steering_angle = steer
             self.drive_publisher.publish(drive)
+            return
 
         ## calculate simulated positions
         # x = pos.x
@@ -162,8 +164,10 @@ class RLNode(Node):
             steer, vel = self.run_model(obs)
             ref_traj[i+1] = self.to_mppi_state(x, y, yaw, vel_ori, vel_x, vel_y, steer)
         self.visualize_future_pose(xs, ys, yaws)
-        if not self.DRIVE:
-            self.traj_publisher.publish(to_multiarray_f32(ref_traj))
+        print(ref_traj.shape)
+        ref_traj = ref_traj[::int(self.config.sim_time_step / self.config.rl_sim_time_step)]
+        # assert ref_traj.shape[0] == self.config.n_steps + 1
+        self.traj_publisher.publish(to_multiarray_f32(ref_traj))
         # self.get_logger().info(f'callback took {time()-t0} seconds')
 
 

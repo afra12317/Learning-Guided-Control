@@ -15,7 +15,7 @@ map_dir: /home/ubuntu/f1tenth_ws/src/Learning-Guided-Control-MPPI/waypoints/
 map_ind: 0
 n_iterations: 1
 n_samples: 256
-n_steps:  10
+n_steps:  8
 norm_params:
 - - 4.0
   - -2.0
@@ -26,6 +26,7 @@ ref_vel: 2.0
 render: 1
 s_frame_max: 62.12059091197948
 sim_time_step: 0.1
+rl_sim_time_step: 0.01
 state_predictor: dynamic_ST
 wpt_delim: ;
 wpt_path: levine/levine.csv

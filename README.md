@@ -11,7 +11,12 @@ This hybrid approach addresses sim-to-real gaps and safety issues, enabling reli
 
 ## Demo
 ### Simulation:
-![Simulation Demo](img/mppi_obs.gif)
+<table>
+  <tr>
+    <td><img src="img/mppi_obs.gif" height="300px" /></td>
+    <td><img src="img/rl.gif" height="300px" /></td>
+  </tr>
+</table>
 
 ### Hardware Run:
 [![Watch the demo](https://img.youtube.com/vi/qhtq4Dn11mY/0.jpg)](https://youtu.be/qhtq4Dn11mY)
@@ -91,7 +96,7 @@ ros2 run mppi_control mppi_node.py
 
 
 ### Hardware Setup
-In your config_example.yaml, set:
+In your `config_example.yaml`, set:
 ```yaml
 is_sim: false
 ```

@@ -10,8 +10,8 @@ control_sample_std:
 exp_name: mppi_tracking
 friction: 0.8
 init_vel: 2.0
-is_sim: false
-map_dir: /home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/waypoints/
+is_sim: true
+map_dir: /home/ubuntu/f1tenth_ws/src/Learning-Guided-Control-MPPI/waypoints/
 map_ind: 0
 n_iterations: 1
 n_samples: 256
@@ -36,7 +36,7 @@ wpt_vind: 5
 wpt_xind: 1
 wpt_yind: 2
 use_mppi: true
-num_scans: 270
+num_scans: 540
 
 
 max_obs: 50

@@ -24,10 +24,7 @@ install(PROGRAMS
     scripts/mppi_tracking.py
     scripts/vis_node.py
     scripts/QtMatplotlib.py
-    scripts/trajectory_error_evaluator.py
-    scripts/pure_pursuit_node.py
-    scripts/mppi_PP.py
-    scripts/obs.py
+    scripts/rl_node.py
     DESTINATION lib/${PROJECT_NAME}
 )
 

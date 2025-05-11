@@ -5,7 +5,7 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='mppi_control',
-            executable='mppi_node.py',
+            executable='mppi_node_og.py',
             name='mppi_node',
             output='screen'
         ),

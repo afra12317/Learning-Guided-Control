@@ -62,22 +62,16 @@ class RLNode(Node):
         self.SCAN_INDEX = np.arange(0, 1080, 1080 // N_BEAMS)
         self.laser_scan = 10 * np.ones((1, N_BEAMS), dtype=np.float32)
         self.model = ort.InferenceSession(
-            "/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_3ms_dt_025_270_xy_vx.onnx",
-            providers=["CUDAExecutionProvider"],
+            "/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/rl_models/levine_540_4ms_t-025.onnx",
+            providers=["CUDAExecutionProvider"]
         )
 
-        # self.model = PPO.load('/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip',
-        #   env=None)
-        # self.model = PPO.load("/home/ubuntu/ese6150_ws/src/Learning-Guided-Control-MPPI/rl_models/model_clean_4ms.zip", env=None)
-        # print(self.model.observation_space)
         self.get_logger().info("model loaded successfully")
-        self.CONTROL_MAX = np.array([0.4189, 3.0])
+        self.CONTROL_MAX = np.array([0.4189, 4.0])
         # create an environment backend for simulating actions to predict future states and lidar scans
         path = "/home/nvidia/f1tenth_ws/src/Learning-Guided-Control-MPPI/waypoints/levine/levine.yaml"
         path = pathlib.Path(path)
         loaded_map = Track.from_track_path(path)
-        # self.car_sim = Simulator(F110Env.f1tenth_vehicle_params(), 1, 12345, , )
-        # self.laser_sim = ScanSimulator2D()
         self.env = gym.make(
             "f1tenth_gym:f1tenth-v0",
             config={
@@ -136,10 +130,10 @@ class RLNode(Node):
         yaw = 2 * np.arccos(ori.w)
         self.pose[0,0] = pos.x
         self.pose[0,1] = pos.y
-        self.pose[0,2] = 0.0 # new model
+        self.pose[0,2] = yaw
         self.vels[0,0] = lin_vel.x
-        self.vels[0,1] = 0.0 # lin_vel.y
-        self.vels[0,2] = 0.0 #ori_vel.z
+        self.vels[0,1] = lin_vel.y
+        self.vels[0,2] = ori_vel.z
 
         obs = {
             "scan": self.laser_scan,
@@ -149,23 +143,18 @@ class RLNode(Node):
         }
         # print(obs)
         steer, vel = self.run_model(obs)
-        self.heading[0,0] = 0.0# steer
-        self.heading[0,1] = 0.0 # self.get_beta(steer)
+        self.heading[0,0] = steer
+        self.heading[0,1] = self.get_beta(steer)
         ref_traj[0] = self.to_mppi_state(
             pos.x, pos.y, yaw, ori_vel.z, lin_vel.x, lin_vel.y, steer
         )
         if self.DRIVE:
-            # if True:
             drive = AckermannDriveStamped()
             drive.drive.speed = vel
             drive.drive.steering_angle = steer
             self.drive_publisher.publish(drive)
             return
-
-        ## calculate simulated positions
-        # x = pos.x
-        # y = pos.y
-        # yaw = self.pose[0, 2]
+        
         xs = []
         ys = []
         yaws = []

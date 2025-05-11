@@ -115,7 +115,7 @@ class RLNode(Node):
     def lidar2world(self, lidar, angles):
         lidar2body = np.array(
             [lidar * np.cos(angles), lidar * np.sin(angles)]
-        )  # (2, 1080)
+        )  # (2, n_scans)
         yaw = self.pose[0, 2]
         R = np.array([[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]])
         return R @ lidar2body + np.array([[self.pose[0, 0], self.pose[0, 1]]])
@@ -161,7 +161,6 @@ class RLNode(Node):
         self.env.reset(options={"poses": np.array([[pos.x, pos.y, yaw]])})
         for i in range(self.N_SIM):
             obs, _, _, _, _ = self.env.step(np.array([[steer, vel]]))
-            # scan = np.zeros((1, self.laser_scan.shape[1]), dtype=np.float32)
             scan = obs["scans"][:, self.SCAN_INDEX]
             x = float(obs["poses_x"][0])
             y = float(obs["poses_y"][0])
@@ -172,11 +171,11 @@ class RLNode(Node):
             xs.append(x)
             ys.append(y)
             yaws.append(yaw)
-            # beta = self.get_beta(steer)
+            beta = self.get_beta(steer)
             obs = {'scan': scan,
-                   'pose' : np.array([[x, y, 0.0]], dtype=np.float32),
-                   'vel' : np.array([[vel_x, 0.0, 0.0]], dtype=np.float32),
-                   'heading' : np.array([[0.0, 0.0]], dtype=np.float32)
+                   'pose' : np.array([[x, y, yaw]], dtype=np.float32),
+                   'vel' : np.array([[vel_x, vel_y, vel_ori]], dtype=np.float32),
+                   'heading' : np.array([[steer, beta]], dtype=np.float32)
             }
             steer, vel = self.run_model(obs)
             ref_traj[i + 1] = self.to_mppi_state(
@@ -188,7 +187,6 @@ class RLNode(Node):
         ]
         # assert ref_traj.shape[0] == self.config.n_steps + 1
         self.traj_publisher.publish(to_multiarray_f32(ref_traj))
-        # self.get_logger().info(f'callback took {time()-t0} seconds')
 
     def publish_traj(self, traj: np.ndarray):
         traj = traj.flatten()
@@ -209,10 +207,6 @@ class RLNode(Node):
         return np.arctan(self.LR * np.tan(steer) / (self.LF + self.LR))
 
     def to_mppi_state(self, x, y, yaw, yaw_rate, vx, vy, delta):
-        # convert to body fram velocities
-        # R = np.array(([[np.cos(yaw), np.sin(yaw)],
-        #                [-np.sin(yaw), np.cos(yaw)]]), dtype=np.float32)
-        # vx, vy = R @ np.array([vx, vy], dtype=np.float32)
         return np.array(
             [
                 x,

@@ -85,7 +85,7 @@ Use **three terminals** to run the system:
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
 
-**Terminal 3** – Run RL node:
+**Terminal 2** – Run RL node:
 ```bash
 ros2 run mppi_control rl_node.py
 ```

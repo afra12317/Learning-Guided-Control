@@ -3,3 +3,7 @@
 **/install/
 **/log/
 .vscode/
+*.zip
+**/wandb/
+**/runs
+**/models

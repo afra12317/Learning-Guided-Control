@@ -79,6 +79,7 @@ In your `config_example.yaml`, set:
 is_sim: true
 ```
 Use **three terminals** to run the system:
+
 **Terminal 1** – Launch gym:
 ```bash
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py

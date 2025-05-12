@@ -368,7 +368,7 @@ class MPPI_Node(Node):
         drive_msg = AckermannDriveStamped()
         drive_msg.header.stamp = self.get_clock().now().to_msg()
         drive_msg.header.frame_id = "base_link"
-        drive_msg.drive.steering_angle = self.control[0] * 2 / 3
+        drive_msg.drive.steering_angle = self.control[0]
         drive_msg.drive.speed = self.control[1]
         # drive_msg.drive.speed = 2.5
         drive_msg.drive.speed = max(drive_msg.drive.speed, 2.5)
